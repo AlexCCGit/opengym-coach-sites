@@ -1,0 +1,46 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { applyRevisionedUpdate } from "../lib/revision.mjs";
+import { migrateGymCoachState } from "../lib/migration.mjs";
+
+test("rechaza una escritura con revision antigua sin modificar el estado", () => {
+  const current = { revision: 4, state: { workouts: [{ id: "kept" }] } };
+
+  const result = applyRevisionedUpdate(current, 3, (state) => ({ ...state, workouts: [] }));
+
+  assert.equal(result.ok, false);
+  assert.equal(result.status, 409);
+  assert.deepEqual(current.state.workouts, [{ id: "kept" }]);
+});
+
+test("incrementa exactamente una revision al aceptar una escritura", () => {
+  const current = { revision: 4, state: { workouts: [] } };
+  const result = applyRevisionedUpdate(current, 4, (state) => ({ ...state, workouts: [{ id: "new" }] }));
+
+  assert.equal(result.ok, true);
+  assert.equal(result.revision, 5);
+  assert.deepEqual(result.state.workouts, [{ id: "new" }]);
+});
+
+test("migra minutos a segundos y conserva ejercicios desconocidos", () => {
+  const source = {
+    workouts: [{
+      id: "legacy-1",
+      date: "2026-08-01T10:00:00.000Z",
+      exercises: [
+        { name: "Plancha", sets: [{ minutes: 1.5 }] },
+        { name: "Press vikingo casero", sets: [{ weight: 20, reps: 8 }], notes: "No perder" },
+      ],
+    }],
+  };
+
+  const result = migrateGymCoachState(source, "user-1");
+
+  const plank = result.state.workouts[0].exercises[0];
+  assert.equal(plank.sets[0].seconds, 90);
+  assert.equal(result.state.customExercises.length, 1);
+  assert.equal(result.state.customExercises[0].name, "Press vikingo casero");
+  assert.equal(result.report.workouts, 1);
+  assert.equal(result.report.dropped, 0);
+});
