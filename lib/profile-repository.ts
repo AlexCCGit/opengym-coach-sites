@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { createInitialState } from "./domain.mjs";
 import { normalizeState } from "./state-schema.mjs";
+import { mayCreateProfile } from "./admin-repository";
 
 type ProfileRecord = { revision: number; state: Record<string, any> };
 
@@ -20,6 +21,8 @@ export async function readProfile(userId: string): Promise<ProfileRecord> {
   ).bind(userId).first<{ state_json: string; revision: number }>();
 
   if (row) return { revision: row.revision, state: normalizeState(JSON.parse(row.state_json), userId) };
+
+  if (!(await mayCreateProfile(userId))) throw new Error("invite_required");
 
   const state = createInitialState(userId);
   const timestamp = new Date().toISOString();

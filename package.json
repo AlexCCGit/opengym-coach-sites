@@ -13,10 +13,11 @@
     "start": "vinext start",
     "test": "node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern android",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern native-dist --ignore-pattern .next --ignore-pattern android",
     "db:generate": "drizzle-kit generate",
     "android:add": "cap add android",
-    "android:sync": "cap sync android",
+    "native:build": "vite build --config vite.native.config.ts",
+    "android:sync": "npm run native:build && cap sync android",
     "android:apk": "npm run android:sync && cd android && gradlew.bat assembleDebug"
   },
   "dependencies": {

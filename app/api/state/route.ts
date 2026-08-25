@@ -4,8 +4,13 @@ import { readProfile, writeProfile } from "../../../lib/profile-repository";
 export async function GET(request: Request) {
   const auth = await authenticateRequest(request);
   if (!auth || !auth.permissions.includes("gym:read")) return unauthorizedResponse(request);
-  const record = await readProfile(auth.userId);
-  return Response.json(record, { headers: { ETag: `"${record.revision}"` } });
+  try {
+    const record = await readProfile(auth.userId);
+    return Response.json(record, { headers: { ETag: `"${record.revision}"` } });
+  } catch (error) {
+    if (error instanceof Error && error.message === "invite_required") return Response.json({ error: "invite_required", message: "Esta instancia requiere una invitación del administrador." }, { status: 403 });
+    throw error;
+  }
 }
 
 export async function PUT(request: Request) {

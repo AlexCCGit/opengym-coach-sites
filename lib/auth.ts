@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { isProfileDisabled } from "./admin-repository";
 
 export type AuthContext = { userId: string; permissions: string[]; email?: string };
 
@@ -27,7 +28,7 @@ export async function authenticateRequest(request: Request): Promise<AuthContext
   const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
 
   if (config.mode === "demo") {
-    if (!token || token === "demo") return { userId: "demo-local", permissions: ["gym:read", "gym:write", "gym:admin"] };
+    if (!token || token === "demo") return await isProfileDisabled("demo-local") ? null : { userId: "demo-local", permissions: ["gym:read", "gym:write", "gym:admin"] };
   }
   if (!token || !config.domain || !config.audience) return null;
 
@@ -55,6 +56,7 @@ export async function authenticateRequest(request: Request): Promise<AuthContext
     const permissions = Array.isArray(payload.permissions)
       ? payload.permissions.map(String)
       : String(payload.scope ?? "").split(/\s+/).filter(Boolean);
+    if (await isProfileDisabled(payload.sub)) return null;
     return { userId: payload.sub, permissions, email: payload.email };
   } catch {
     return null;

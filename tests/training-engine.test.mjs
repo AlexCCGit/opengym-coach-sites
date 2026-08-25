@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { detectPersonalRecords, normalizeEffort, recommendProgression, summarizeEffort, supersetUnits, updateProgressionState } from "../lib/training-engine.mjs";
+import { detectPersonalRecords, normalizeEffort, recommendProgression, shouldStartRest, summarizeEffort, supersetUnits, updateProgressionState } from "../lib/training-engine.mjs";
 import { createInitialState } from "../lib/domain.mjs";
 import { exportPortableState, importPortableState, normalizeState } from "../lib/state-schema.mjs";
 
@@ -36,6 +36,18 @@ test("agrupa superseries manteniendo el orden de unidades", () => {
   assert.deepEqual(supersetUnits(entries).map((unit) => unit.map((entry) => entry.exerciseId)), [["a"], ["b", "c"]]);
 });
 
+test("descansa al completar la ronda de una superserie, no entre sus ejercicios", () => {
+  const exercises = [
+    { exerciseId: "a", supersetGroup: "x", sets: [{ completed: false }] },
+    { exerciseId: "b", supersetGroup: "x", sets: [{ completed: false }] },
+    { exerciseId: "c", sets: [{ completed: false }] },
+  ];
+  assert.equal(shouldStartRest(exercises, 0, 0), false);
+  exercises[0].sets[0].completed = true;
+  assert.equal(shouldStartRest(exercises, 1, 0), true);
+  assert.equal(shouldStartRest(exercises, 2, 0), true);
+});
+
 test("aplica progresión doble, Greyskull y descarga", () => {
   const double = recommendProgression({ policy: "double", previousSets: [{ weight: 50, reps: 10 }], targetReps: 10, increment: 2.5 });
   assert.equal(double.weight, 52.5);
@@ -45,6 +57,14 @@ test("aplica progresión doble, Greyskull y descarga", () => {
   const deload = recommendProgression({ policy: "linear", previousSets: [{ weight: 100, reps: 5 }], targetReps: 5, stalls: 3, increment: 2.5 });
   assert.equal(deload.weight, 90);
   assert.equal(deload.deload, true);
+});
+
+test("Greyskull resetea al primer fallo y el peso corporal progresa en repeticiones", () => {
+  const reset = recommendProgression({ policy: "greyskull", previousSets: [{ weight: 100, reps: 4 }], targetReps: 5, stalls: 1, increment: 2.5 });
+  assert.equal(reset.weight, 90);
+  const bodyweight = recommendProgression({ policy: "linear", previousSets: [{ weight: 0, reps: 10 }], targetReps: 10 });
+  assert.equal(bodyweight.reps, 11);
+  assert.equal(bodyweight.weight, 0);
 });
 
 test("detecta records frente al historial previo", () => {

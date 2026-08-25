@@ -4,14 +4,25 @@ import test from "node:test";
 import {
   createInitialState,
   estimateOneRepMax,
+  getOneRepMaxHistory,
   getMuscleBalance,
   prefillExercise,
+  weightForTargetOneRepMax,
 } from "../lib/domain.mjs";
 
 test("estima 1RM solo a partir de series elegibles de hasta 12 repeticiones", () => {
   assert.equal(estimateOneRepMax({ weight: 80, reps: 8 }), 101.3);
   assert.equal(estimateOneRepMax({ weight: 80, reps: 13 }), null);
   assert.equal(estimateOneRepMax({ weight: 0, reps: 8 }), null);
+});
+
+test("explica la curva de 1RM y calcula una carga objetivo", () => {
+  const state = createInitialState("user-1");
+  const history = getOneRepMaxHistory(state, "lat-pulldown");
+  assert.equal(history.length, 1);
+  assert.deepEqual(history[0].sourceSet, { weight: 52.5, reps: 10, id: "set-1" });
+  assert.equal(weightForTargetOneRepMax(100, 5), 85.7);
+  assert.equal(weightForTargetOneRepMax(100, 13), null);
 });
 
 test("precarga peso y repeticiones desde la ultima sesion del mismo ejercicio", () => {

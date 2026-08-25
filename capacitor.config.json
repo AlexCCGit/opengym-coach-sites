@@ -1,12 +1,8 @@
 {
   "appId": "com.alexcc.opengymcoach",
   "appName": "OpenGym Coach",
-  "webDir": "mobile-shell",
+  "webDir": "native-dist",
   "backgroundColor": "#111512",
-  "server": {
-    "url": "https://opengym-coach.alexcocl.chatgpt.site",
-    "cleartext": false
-  },
   "android": {
     "allowMixedContent": false
   }

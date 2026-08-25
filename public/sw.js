@@ -10,7 +10,18 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET" || new URL(event.request.url).origin !== location.origin) return;
+  if (event.request.method !== "GET") return;
+  const url = new URL(event.request.url);
+  const isDataset = url.hostname === "cdn.jsdelivr.net";
+  if (url.origin !== location.origin && !isDataset) return;
+  if (isDataset) {
+    event.respondWith(caches.match(event.request).then((cached) => cached ?? fetch(event.request).then((response) => {
+      const copy = response.clone();
+      caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+      return response;
+    })));
+    return;
+  }
   event.respondWith(fetch(event.request).then((response) => {
     const copy = response.clone();
     caches.open(CACHE).then((cache) => cache.put(event.request, copy));

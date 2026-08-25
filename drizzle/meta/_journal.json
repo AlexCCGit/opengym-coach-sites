@@ -8,6 +8,13 @@
       "when": 1787608872304,
       "tag": "0000_slimy_retro_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1787693159087,
+      "tag": "0001_flawless_captain_cross",
+      "breakpoints": true
     }
   ]
 }

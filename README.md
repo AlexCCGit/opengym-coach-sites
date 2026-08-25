@@ -6,13 +6,14 @@ Adaptación completa de [openGym](https://github.com/alexpcosta/opengym) para Ch
 
 - Catálogo abierto de más de 1300 ejercicios con filtros, medios, instrucciones y ejercicios personalizados.
 - Editor integral de rutinas, plan semanal, excepciones diarias, superseries y plan compartible/imprimible.
-- Sesiones guiadas de repeticiones, tiempo y cardio; precarga, RIR/RPE, descanso sonoro, wake lock y marcas personales.
-- Progresión manual, lineal, Greyskull, doble y temporal, con estancamientos y descarga automática.
-- Historial editable, peso corporal con objetivo/gráfico, 1RM, resumen semanal, racha, heatmap y mapa muscular.
-- Coach AI mediante OpenAI Responses API con fallback local determinista, recordatorios y panel administrativo.
-- Temas claro/oscuro/sistema, tres acentos y selector de 12 idiomas.
+- Sesiones guiadas de repeticiones, tiempo y cardio; cronómetro de trabajo, descanso correcto por superserie, precarga, RIR/RPE, wake lock y marcas personales.
+- Progresión por rutina y por ejercicio: manual, lineal, Greyskull LP, doble y temporal, con rangos, estancamientos y descargas.
+- Historial editable, unidades kg/lb, peso corporal con objetivo, curva/calculadora de 1RM, heatmap anual y mapa muscular frontal/posterior por periodo.
+- Coach mediante OpenAI Responses API o motor local: diseña y revisa planes, presenta cambios discretos, exige aceptación y conserva una instantánea reversible.
+- Administración con actividad en curso, historial reciente, bloqueo, borrado y registro sólo por invitación.
+- Temas claro/oscuro/sistema, ocho acentos y selector de 12 idiomas; los catálogos oficiales de UI e instrucciones se cargan bajo demanda desde el commit openGym fijado.
 - Importación de JSON, Gym Coach, Strong, Hevy, FitNotes y Apple Health; exportación JSON completa.
-- PWA offline y proyecto Android Capacitor con archivos, notificaciones locales y compartir nativo.
+- PWA offline y Android Capacitor autónomo: interfaz empaquetada, datos locales sin backend, copias en Documentos, notificaciones por plan/descanso y compartir nativo.
 - Persistencia D1 por usuario con revisión optimista, OAuth 2.0/Auth0 y MCP Streamable HTTP.
 
 ## Configuración
@@ -34,7 +35,7 @@ Para generar el APK de depuración:
 npm run android:apk
 ```
 
-El artefacto queda en `android/app/build/outputs/apk/debug/app-debug.apk`. Un APK de distribución requiere una firma propia y no debe reutilizar la clave de depuración.
+`android:apk` construye primero la aplicación web autónoma en `native-dist`, la copia al proyecto Capacitor y ensambla el APK. El artefacto queda en `android/app/build/outputs/apk/debug/app-debug.apk`. Un APK de distribución requiere una firma propia y no debe reutilizar la clave de depuración.
 
 ## Licencia y atribución
 
