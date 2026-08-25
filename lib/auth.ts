@@ -27,7 +27,7 @@ export async function authenticateRequest(request: Request): Promise<AuthContext
   const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
 
   if (config.mode === "demo") {
-    if (!token || token === "demo") return { userId: "demo-local", permissions: ["gym:read", "gym:write"] };
+    if (!token || token === "demo") return { userId: "demo-local", permissions: ["gym:read", "gym:write", "gym:admin"] };
   }
   if (!token || !config.domain || !config.audience) return null;
 

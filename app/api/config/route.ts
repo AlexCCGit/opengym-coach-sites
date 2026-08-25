@@ -7,6 +7,6 @@ export async function GET(request: Request) {
     auth0Domain: config.domain,
     auth0ClientId: config.clientId,
     audience: config.audience,
-    scopes: ["openid", "profile", "email", "gym:read", "gym:write"],
+    scopes: ["openid", "profile", "email", "gym:read", "gym:write", "gym:admin"],
   });
 }

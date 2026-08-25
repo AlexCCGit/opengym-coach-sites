@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { createInitialState } from "./domain.mjs";
+import { normalizeState } from "./state-schema.mjs";
 
 type ProfileRecord = { revision: number; state: Record<string, any> };
 
@@ -18,7 +19,7 @@ export async function readProfile(userId: string): Promise<ProfileRecord> {
     "SELECT state_json, revision FROM profile_state WHERE user_id = ?",
   ).bind(userId).first<{ state_json: string; revision: number }>();
 
-  if (row) return { revision: row.revision, state: JSON.parse(row.state_json) };
+  if (row) return { revision: row.revision, state: normalizeState(JSON.parse(row.state_json), userId) };
 
   const state = createInitialState(userId);
   const timestamp = new Date().toISOString();
@@ -39,15 +40,16 @@ export async function writeProfile(
   state: Record<string, any>,
 ) {
   const nextRevision = expectedRevision + 1;
+  const normalized = normalizeState(state, userId);
   const result = await env.DB.prepare(
     "UPDATE profile_state SET state_json = ?, revision = ?, updated_at = ? WHERE user_id = ? AND revision = ?",
-  ).bind(JSON.stringify(state), nextRevision, new Date().toISOString(), userId, expectedRevision).run();
+  ).bind(JSON.stringify(normalized), nextRevision, new Date().toISOString(), userId, expectedRevision).run();
 
   if ((result.meta.changes ?? 0) !== 1) {
     const current = await readProfile(userId);
     return { ok: false as const, revision: current.revision, state: current.state };
   }
-  return { ok: true as const, revision: nextRevision, state };
+  return { ok: true as const, revision: nextRevision, state: normalized };
 }
 
 export function profileRepository() {

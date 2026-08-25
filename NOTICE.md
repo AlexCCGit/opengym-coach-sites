@@ -12,50 +12,16 @@ with the AGPL, provided the corresponding source code remains available under th
 the project repository. This permission applies to the distribution channel only and does
 not otherwise limit the license.
 
-## Bundled AI provider CLI
+## Optional AI provider
 
-The api image installs the [**Claude Code CLI**](https://github.com/anthropics/claude-code)
-(`@anthropic-ai/claude-code`, pinned in `api/Dockerfile`) so the optional AI Coach works
-without the instance owner installing anything. openGym invokes it as a separate process at
-runtime and does not link against it or include its source; this is mere aggregation, and
-openGym's own AGPL v3.0 licensing is unchanged.
-
-The CLI is distributed under its own terms, and using it requires an account with the
-provider. Both are matters between the instance owner and Anthropic — openGym ships no
-credentials and asks its users for none. Instances that would rather not carry it can leave
-the Coach disabled (the default) or set `COACH_DISABLED=1`.
+The Coach can call the OpenAI Responses API when an instance owner supplies an
+`OPENAI_API_KEY`. No provider SDK, credentials or generated responses are bundled in this
+repository. Without a key, the application uses its deterministic local coach.
 
 ## Body diagram geometry
 
-The muscle outlines the body maps are drawn from (`frontend/src/lib/body-paths.js`) are derived
-from [**MuscleMap**](https://github.com/melihcolpan/MuscleMap) by Melih Colpan, used under the
-**MIT License** and reproduced below. MuscleMap ships its path data as Swift source rather than
-`.svg` files; the paths were converted to a JSON module, its sub-group shapes were dropped, and
-nothing else about the artwork was changed.
-
-```
-MIT License
-
-Copyright (c) 2026 Melih Colpan
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
+The compact body diagram in this adaptation is original inline SVG geometry and does not
+copy the optional MuscleMap path dataset used by the upstream project.
 
 ## Exercise data & media
 
