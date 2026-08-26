@@ -10,7 +10,7 @@ import { activityHeatmap, muscleFrequency, trainingStreak, weeklySummary } from 
 import { buildPlanBundle, decodePlanBundle, encodePlanBundle, mergePlanBundle, printablePlanHtml } from "../lib/plan-share.mjs";
 import { LANGUAGES, loadUiLocale, translate } from "../lib/i18n.mjs";
 import { applyCoachSuggestions, designPlanProposal, dismissCoachSuggestion, reviewPlan, undoCoachChanges } from "../lib/coach-planner.mjs";
-import { migrateGymCoachState } from "../lib/migration.mjs";
+import { mergeGymCoachState, migrateGymCoachState } from "../lib/migration.mjs";
 import { Capacitor } from "@capacitor/core";
 import { Directory, Filesystem } from "@capacitor/filesystem";
 import { LocalNotifications } from "@capacitor/local-notifications";
@@ -631,6 +631,7 @@ function BodyMap({ muscles, period, figure }: { muscles: Record<string, number>;
 
 function Settings({ state, t, request, onSave, onLogout }: any) {
   const [report, setReport] = useState<any>(null);
+  const [pendingImport, setPendingImport] = useState<any>(null);
   const [admin, setAdmin] = useState<any>(null);
   const [adminError, setAdminError] = useState("");
   const [inviteUserId, setInviteUserId] = useState("");
@@ -638,23 +639,36 @@ function Settings({ state, t, request, onSave, onLogout }: any) {
     if (!file) return;
     if (file.name.toLowerCase().endsWith(".csv")) {
       const result = importWorkoutCsv(await file.text(), state);
-      setReport(result.report);
-      await onSave(result.state, `Importación ${result.report.source} completada`);
+      setPendingImport({ ...result, fileName: file.name, label: `Importación ${result.report.source}` });
       return;
     }
     const source = JSON.parse(await file.text());
     if (source?.format === "opengym-coach") {
-      await onSave(importPortableState(source, state.userId), "Copia de OpenGym restaurada");
-      setReport({ portable: true });
+      const nextState = importPortableState(source, state.userId);
+      setPendingImport({
+        state: nextState,
+        fileName: file.name,
+        label: "Restauración de copia completa",
+        report: {
+          portable: true,
+          workouts: nextState.workouts.length,
+          routines: nextState.routines.length,
+          bodyweight: nextState.bodyweight.length,
+          customExercises: nextState.customExercises.length,
+          sets: nextState.workouts.reduce((total: number, workout: any) => total + workout.exercises.reduce((subtotal: number, entry: any) => subtotal + (entry.sets?.length ?? 0), 0), 0),
+          duplicates: 0,
+          conflicts: 0,
+          warnings: ["Esta copia sustituirá el estado actual completo."],
+        },
+      });
       return;
     }
-    const response = await request("/api/import/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(source) });
-    const result = await response.json();
-    if (response.ok) { setReport(result.report); await onSave(result.state, "Importación preparada y guardada"); }
+    const result = mergeGymCoachState(source, state);
+    setPendingImport({ ...result, fileName: file.name, label: "Fusión desde Gym Coach" });
   }
-  const downloadExport = async () => {
-    const contents = JSON.stringify(exportPortableState(state), null, 2);
-    const filename = `opengym-${new Date().toISOString().slice(0, 10)}.json`;
+  const downloadState = async (snapshot: any, prefix = "opengym") => {
+    const contents = JSON.stringify(exportPortableState(snapshot), null, 2);
+    const filename = `${prefix}-${new Date().toISOString().slice(0, 10)}.json`;
     if (Capacitor.isNativePlatform()) {
       const bytes = new TextEncoder().encode(contents);
       const binary = Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
@@ -669,6 +683,15 @@ function Settings({ state, t, request, onSave, onLogout }: any) {
     anchor.download = filename;
     anchor.click();
     URL.revokeObjectURL(url);
+  };
+  const downloadExport = () => downloadState(state);
+  const applyPendingImport = async () => {
+    if (!pendingImport) return;
+    await downloadState(state, "opengym-antes-de-migrar");
+    const saved = await onSave(pendingImport.state, `${pendingImport.label} completada`);
+    if (!saved) return;
+    setReport(pendingImport.report);
+    setPendingImport(null);
   };
   const updateSettings = (patch: any, message: string) => onSave({ ...state, settings: { ...state.settings, ...patch } }, message);
   const updateProfile = (patch: any, message: string) => onSave({ ...state, profile: { ...state.profile, ...patch } }, message);
@@ -705,7 +728,7 @@ function Settings({ state, t, request, onSave, onLogout }: any) {
     await loadAdmin(); return true;
   };
   return <div className="stack"><div className="page-title"><span className="eyebrow">OPEN GYM</span><h2>{t("Settings")}</h2><p>{t("Your workouts. Your weights. Your profile.")}</p></div>
-    <article className="settings-card"><h3>Datos y migración</h3><p>Exporta una copia completa o importa OpenGym, Gym Coach, Strong, Hevy, FitNotes y Apple Health. El origen nunca se modifica.</p><div className="settings-actions"><button className="secondary" onClick={downloadExport}>Exportar JSON</button><label className="file-button">Importar archivo<input type="file" accept="application/json,.json,text/csv,.csv" onChange={(event) => importFile(event.target.files?.[0])} /></label></div>{report && <div className="import-report"><strong>Importación completada</strong>{report.portable ? <span>Copia completa restaurada</span> : <><span>{report.workouts} sesiones · {report.exercises} ejercicios · {report.sets} series</span><span>{report.customExercises} ejercicios personalizados · {report.dropped} descartados</span></>}</div>}</article>
+    <article className="settings-card"><h3>Datos y migración</h3><p>Exporta una copia completa o importa OpenGym, Gym Coach, Strong, Hevy, FitNotes y Apple Health. El origen nunca se modifica.</p><div className="settings-actions"><button className="secondary" onClick={downloadExport}>Exportar JSON</button><label className="file-button">Importar archivo<input type="file" accept="application/json,.json,text/csv,.csv" onChange={(event) => { const file = event.target.files?.[0]; importFile(file).catch((error) => setReport({ error: error.message })); event.currentTarget.value = ""; }} /></label></div>{pendingImport && <div className="import-preview" role="status"><span className="eyebrow">VISTA PREVIA · {pendingImport.fileName}</span><h4>{pendingImport.label}</h4><div className="metric-strip"><span><strong>{pendingImport.report.workouts ?? 0}</strong> sesiones nuevas</span><span><strong>{pendingImport.report.routines ?? 0}</strong> rutinas nuevas</span><span><strong>{pendingImport.report.bodyweight ?? 0}</strong> pesos nuevos</span></div><p>{pendingImport.report.sets ?? 0} series · {pendingImport.report.customExercises ?? 0} ejercicios personalizados · {pendingImport.report.duplicates ?? 0} duplicados omitidos · {pendingImport.report.conflicts ?? 0} conflictos conservados</p>{pendingImport.report.warnings?.length > 0 && <details><summary>Revisar avisos ({pendingImport.report.warnings.length})</summary>{pendingImport.report.warnings.map((warning: string) => <small key={warning}>{warning}</small>)}</details>}<div className="settings-actions"><button className="secondary" onClick={() => setPendingImport(null)}>Cancelar</button><button onClick={applyPendingImport}>Crear copia y {pendingImport.report.portable ? "restaurar" : "fusionar"}</button></div></div>}{report && <div className={report.error ? "error-text" : "import-report"}><strong>{report.error ? "No se pudo preparar la importación" : "Importación completada"}</strong>{report.error ? <span>{report.error}</span> : report.portable ? <span>Copia completa restaurada</span> : <><span>{report.workouts} sesiones · {report.routines ?? 0} rutinas · {report.sets} series</span><span>{report.bodyweight ?? 0} pesos · {report.customExercises} ejercicios personalizados · {report.duplicates ?? 0} duplicados omitidos</span></>}</div>}</article>
     <article className="settings-card"><h3>Entrenamiento</h3><label className="setting-row"><span>Descanso automático</span><select value={state.settings.restSeconds} onChange={(event) => updateSettings({ restSeconds: Number(event.target.value) }, "Descanso actualizado")}><option value="30">30 s</option><option value="60">60 s</option><option value="90">90 s</option><option value="120">2 min</option><option value="180">3 min</option></select></label><label className="setting-row"><span>Esfuerzo</span><select value={state.settings.effortTracking} onChange={(event) => updateSettings({ effortTracking: event.target.value }, "Registro de esfuerzo actualizado")}><option value="off">Desactivado</option><option value="rir">RIR</option><option value="rpe">RPE</option></select></label><label className="setting-row"><span>Mantener pantalla activa</span><input type="checkbox" checked={state.settings.keepAwake} onChange={(event) => updateSettings({ keepAwake: event.target.checked }, "Wake lock actualizado")} /></label><label className="setting-row"><span>Recordatorio diario</span><input type="checkbox" checked={state.settings.reminder.enabled} onChange={(event) => toggleReminder(event.target.checked)} /></label><label className="setting-row"><span>Hora</span><input type="time" value={state.settings.reminder.time} onChange={(event) => updateSettings({ reminder: { ...state.settings.reminder, time: event.target.value } }, "Hora del recordatorio actualizada")} /></label></article>
     <article className="settings-card"><h3>Apariencia</h3><label className="setting-row"><span>Tema</span><select value={state.settings.theme} onChange={(event) => updateSettings({ theme: event.target.value }, "Tema actualizado")}><option value="dark">Oscuro</option><option value="light">Claro</option><option value="system">Sistema</option></select></label><label className="setting-row"><span>Acento</span><select value={state.settings.accent} onChange={(event) => updateSettings({ accent: event.target.value }, "Color actualizado")}><option value="lime">Lima</option><option value="violet">Violeta</option><option value="amber">Ámbar</option><option value="blue">Azul</option><option value="cyan">Cian</option><option value="green">Verde</option><option value="red">Rojo</option><option value="pink">Rosa</option></select></label><label className="setting-row"><span>Figura del mapa</span><select value={state.settings.bodyMap} onChange={(event) => updateSettings({ bodyMap: event.target.value }, "Figura actualizada")}><option value="male">Masculina</option><option value="female">Femenina</option></select></label></article>
     <article className="settings-card admin-card"><h3>Administración</h3><p>Actividad, historial, invitaciones y acceso. Disponible únicamente con <code>gym:admin</code>.</p><button className="secondary" onClick={loadAdmin}>Abrir panel</button>{adminError && <p className="error-text">{adminError}</p>}{admin && <><div className="metric-strip"><span><strong>{admin.totals.profiles}</strong> perfiles</span><span><strong>{admin.totals.active}</strong> entrenando</span><span><strong>{admin.totals.disabled}</strong> bloqueados</span></div><label className="setting-row"><span>Registro sólo por invitación</span><input type="checkbox" checked={admin.inviteOnly} onChange={(event) => patchAdmin({ inviteOnly: event.target.checked })} /></label><div className="create-row"><input value={inviteUserId} onChange={(event) => setInviteUserId(event.target.value)} placeholder="ID Auth0 que podrá crear perfil" /><button onClick={async () => { if (inviteUserId.trim() && await patchAdmin({ userId: inviteUserId.trim(), invited: true })) setInviteUserId(""); }}>Invitar</button></div><div className="admin-table">{admin.profiles.map((profile: any) => <div key={profile.user_id} className={profile.active ? "is-active" : ""}><span><strong>{profile.active ? "● " : ""}{profile.user_id}</strong><small>v{profile.revision} · {profile.workoutCount} sesiones · {new Date(profile.updated_at).toLocaleString()}</small>{profile.activity && <small>{profile.activity.routineName} desde {new Date(profile.activity.startedAt).toLocaleTimeString()}</small>}<details><summary>Últimos entrenamientos</summary>{profile.recentWorkouts.map((workout: any) => <small key={workout.id}>{new Date(workout.date).toLocaleDateString()} · {workout.name} · {workout.sets} series</small>)}</details></span><div className="admin-actions"><button onClick={() => patchAdmin({ userId: profile.user_id, disabled: !profile.disabled })}>{profile.disabled ? "Reactivar" : "Bloquear"}</button><button onClick={() => deleteProfile(profile.user_id)}>Eliminar</button></div></div>)}</div></>}</article>
