@@ -1,0 +1,23 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+const root = new URL("../", import.meta.url);
+
+test("mantiene el layout móvil contenido y evita el zoom automático de formularios", async () => {
+  const css = await readFile(new URL("app/globals.css", root), "utf8");
+
+  assert.match(css, /input, select, textarea \{ font-size: 16px; \}/);
+  assert.match(css, /\.stack > \*, \.coach-page > \*/);
+  assert.match(css, /grid-template-columns: repeat\(5, minmax\(0, 1fr\)\)/);
+  assert.match(css, /\.bottom-nav \.nav-secondary \{ display: none; \}/);
+  assert.match(css, /\.set-row \{[^}]*grid-template-areas:/s);
+});
+
+test("usa un diálogo responsive en vez de prompts nativos al iniciar", async () => {
+  const app = await readFile(new URL("app/OpenGymApp.tsx", root), "utf8");
+
+  assert.doesNotMatch(app, /window\.prompt\(/);
+  assert.match(app, /className="preworkout-dialog"/);
+  assert.match(app, /className={`nav-more/);
+});

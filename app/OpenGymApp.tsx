@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { createInitialState, getEstimatedOneRepMaxes, getExercise, getMuscleBalance, getOneRepMaxHistory, prefillExercise, weightForTargetOneRepMax } from "../lib/domain.mjs";
 import { exportPortableState, importPortableState, normalizeState } from "../lib/state-schema.mjs";
 import { detectPersonalRecords, exerciseMode, recommendProgression, shouldStartRest, summarizeEffort, updateProgressionState } from "../lib/training-engine.mjs";
@@ -89,6 +89,10 @@ export function OpenGymApp() {
   const [catalog, setCatalog] = useState<any[]>([]);
   const [catalogError, setCatalogError] = useState("");
   const [uiDictionary, setUiDictionary] = useState<Record<string, string>>({});
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [pendingRoutine, setPendingRoutine] = useState<any>(null);
+  const [preWorkoutWeight, setPreWorkoutWeight] = useState("");
+  const activeWorkoutId = activeWorkout?.id;
 
   const request = useCallback(async (url: string, init: RequestInit = {}) => {
     if (Capacitor.isNativePlatform()) return nativeRequest(url, init);
@@ -121,6 +125,8 @@ export function OpenGymApp() {
     if (tab !== "biblioteca" || catalog.length || catalogError) return;
     fetchExerciseCatalog().then(setCatalog).catch((error) => setCatalogError(error.message));
   }, [tab, catalog.length, catalogError]);
+  useEffect(() => { window.scrollTo(0, 0); }, [tab]);
+  useEffect(() => { if (activeWorkoutId) window.scrollTo(0, 0); }, [activeWorkoutId]);
   useEffect(() => {
     const reminder = record?.state?.settings?.reminder;
     if (!reminder?.enabled || !("Notification" in window)) return;
@@ -202,16 +208,14 @@ export function OpenGymApp() {
   const routineId = Object.prototype.hasOwnProperty.call(state.dayOverrides, dateKey) ? state.dayOverrides[dateKey] : state.weekPlan[todayKey];
   const routine = state.routines.find((entry: any) => entry.id === routineId);
 
-  async function startWorkout(selectedRoutine = routine) {
+  async function startWorkout(selectedRoutine = routine, skipBodyweightPrompt = false) {
     if (!selectedRoutine) return;
-    if (state.settings?.promptBodyweight) {
+    if (state.settings?.promptBodyweight && !skipBodyweightPrompt) {
       const unit = state.profile?.weightUnit ?? "kg";
       const latestWeight = state.bodyweight.at(-1)?.weight ?? "";
-      const entered = window.prompt(`Peso corporal de hoy en ${weightLabel(unit)} (opcional)`, String(displayWeight(latestWeight, unit)));
-      const kilograms = entered ? kilogramsFromDisplay(entered, unit) : null;
-      if (kilograms != null && kilograms !== Number(latestWeight)) {
-        await save({ ...state, bodyweight: [...state.bodyweight, { id: crypto.randomUUID(), date: new Date().toISOString(), weight: kilograms }] }, "Peso registrado antes de la sesión");
-      }
+      setPreWorkoutWeight(String(displayWeight(latestWeight, unit)));
+      setPendingRoutine(selectedRoutine);
+      return;
     }
     setActiveWorkout({
       id: crypto.randomUUID(),
@@ -250,6 +254,20 @@ export function OpenGymApp() {
     request("/api/activity/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "training", routineName: selectedRoutine.name }) }).catch(() => undefined);
   }
 
+  async function confirmWorkoutStart(event: FormEvent) {
+    event.preventDefault();
+    const selectedRoutine = pendingRoutine;
+    if (!selectedRoutine) return;
+    const unit = state.profile?.weightUnit ?? "kg";
+    const latestWeight = state.bodyweight.at(-1)?.weight ?? "";
+    const kilograms = preWorkoutWeight ? kilogramsFromDisplay(preWorkoutWeight, unit) : null;
+    if (kilograms != null && kilograms > 0 && kilograms !== Number(latestWeight)) {
+      await save({ ...state, bodyweight: [...state.bodyweight, { id: crypto.randomUUID(), date: new Date().toISOString(), weight: kilograms }] }, "Peso registrado antes de la sesión");
+    }
+    setPendingRoutine(null);
+    await startWorkout(selectedRoutine, true);
+  }
+
   if (activeWorkout) {
     return <GuidedWorkout workout={activeWorkout} state={state} t={t} setWorkout={setActiveWorkout} request={request} onCancel={() => { request("/api/activity/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "idle" }) }).catch(() => undefined); setActiveWorkout(null); }} onFinish={async () => {
       const finished = { ...activeWorkout, durationSeconds: Math.max(60, Math.round((Date.now() - activeWorkout.startedAt) / 1000)) };
@@ -281,11 +299,15 @@ export function OpenGymApp() {
         }} />}
       </section>
 
+      {pendingRoutine && <div className="dialog-backdrop"><form className="preworkout-dialog" role="dialog" aria-modal="true" aria-labelledby="preworkout-title" onSubmit={confirmWorkoutStart}><span className="eyebrow">ANTES DE EMPEZAR</span><h2 id="preworkout-title">Peso corporal de hoy</h2><p>Es opcional y puedes cambiarlo después.</p><label><span>{weightLabel(state.profile?.weightUnit ?? "kg")}</span><input type="number" inputMode="decimal" step="0.1" value={preWorkoutWeight} onChange={(event) => setPreWorkoutWeight(event.target.value)} /></label><div><button type="button" className="secondary" onClick={() => setPendingRoutine(null)}>Cancelar</button><button type="submit" className="primary">Continuar <span>→</span></button></div></form></div>}
+
       <nav className="bottom-nav" aria-label="Navegación principal">
         {([
           ["hoy", t("today"), "●"], ["coach", t("coach"), "✦"], ["biblioteca", t("library"), "⌕"], ["rutinas", t("routines"), "▦"], ["historial", t("history"), "↺"], ["progreso", t("progress"), "↗"], ["ajustes", t("settings"), "⌁"],
-        ] as const).map(([id, label, icon]) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}><span>{icon}</span>{label}</button>)}
+        ] as const).map(([id, label, icon]) => <button key={id} className={`${tab === id ? "active" : ""} ${["historial", "progreso", "ajustes"].includes(id) ? "nav-secondary" : ""}`} onClick={() => { setTab(id); setMoreOpen(false); }}><span>{icon}</span>{label}</button>)}
+        <button className={`nav-more ${["historial", "progreso", "ajustes"].includes(tab) ? "active" : ""}`} aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}><span>•••</span>{t("More")}</button>
       </nav>
+      {moreOpen && <div className="more-menu" role="menu" aria-label={t("More")}>{([ ["historial", t("history"), "↺"], ["progreso", t("progress"), "↗"], ["ajustes", t("settings"), "⌁"] ] as const).map(([id, label, icon]) => <button key={id} role="menuitem" className={tab === id ? "active" : ""} onClick={() => { setTab(id); setMoreOpen(false); }}><span>{icon}</span><strong>{label}</strong></button>)}</div>}
     </main>
   );
 }
@@ -375,7 +397,7 @@ function GuidedWorkout({ workout, state, t, setWorkout, request, onCancel, onFin
       setWorkTimer(null);
     }
   }, [workTimer, toggleCompleted, updateSet]);
-  return <main className="guided-shell">
+  return <main className={`guided-shell theme-${state.settings?.theme ?? "dark"} accent-${state.settings?.accent ?? "lime"}`}>
     <header className="guided-header"><button className="icon-button" onClick={onCancel} aria-label={t("Discard workout?")}>×</button><div><span className="eyebrow">{t("Resume").toUpperCase()}</span><h1>{workout.name}</h1></div><span className="set-count">{completed}/{total}</span></header>
     <div className="session-progress"><span style={{ width: `${total ? completed / total * 100 : 0}%` }} /></div>
     {restLeft > 0 && <div className="rest-timer" role="timer"><span>{t("Rest")}</span><strong>{Math.floor(restLeft / 60)}:{String(restLeft % 60).padStart(2, "0")}</strong><button onClick={() => { setRestLeft(0); if (Capacitor.isNativePlatform()) LocalNotifications.cancel({ notifications: [{ id: 7002 }] }).catch(() => undefined); }}>{t("Skip")}</button></div>}
