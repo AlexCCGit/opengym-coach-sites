@@ -632,22 +632,16 @@ function BodyMap({ muscles, period, figure }: { muscles: Record<string, number>;
 function Settings({ state, t, request, onSave, onLogout }: any) {
   const [report, setReport] = useState<any>(null);
   const [pendingImport, setPendingImport] = useState<any>(null);
+  const [pastedImport, setPastedImport] = useState("");
   const [admin, setAdmin] = useState<any>(null);
   const [adminError, setAdminError] = useState("");
   const [inviteUserId, setInviteUserId] = useState("");
-  async function importFile(file?: File) {
-    if (!file) return;
-    if (file.name.toLowerCase().endsWith(".csv")) {
-      const result = importWorkoutCsv(await file.text(), state);
-      setPendingImport({ ...result, fileName: file.name, label: `Importación ${result.report.source}` });
-      return;
-    }
-    const source = JSON.parse(await file.text());
+  function prepareJsonImport(source: any, fileName: string) {
     if (source?.format === "opengym-coach") {
       const nextState = importPortableState(source, state.userId);
       setPendingImport({
         state: nextState,
-        fileName: file.name,
+        fileName,
         label: "Restauración de copia completa",
         report: {
           portable: true,
@@ -664,7 +658,25 @@ function Settings({ state, t, request, onSave, onLogout }: any) {
       return;
     }
     const result = mergeGymCoachState(source, state);
-    setPendingImport({ ...result, fileName: file.name, label: "Fusión desde Gym Coach" });
+    setPendingImport({ ...result, fileName, label: "Fusión desde Gym Coach" });
+  }
+  async function importFile(file?: File) {
+    if (!file) return;
+    if (file.name.toLowerCase().endsWith(".csv")) {
+      const result = importWorkoutCsv(await file.text(), state);
+      setPendingImport({ ...result, fileName: file.name, label: `Importación ${result.report.source}` });
+      return;
+    }
+    prepareJsonImport(JSON.parse(await file.text()), file.name);
+  }
+  function importPastedJson() {
+    try {
+      prepareJsonImport(JSON.parse(pastedImport), "JSON pegado");
+      setPastedImport("");
+      setReport(null);
+    } catch (error: any) {
+      setReport({ error: error?.message ?? "JSON no válido" });
+    }
   }
   const downloadState = async (snapshot: any, prefix = "opengym") => {
     const contents = JSON.stringify(exportPortableState(snapshot), null, 2);
@@ -728,6 +740,7 @@ function Settings({ state, t, request, onSave, onLogout }: any) {
     await loadAdmin(); return true;
   };
   return <div className="stack"><div className="page-title"><span className="eyebrow">OPEN GYM</span><h2>{t("Settings")}</h2><p>{t("Your workouts. Your weights. Your profile.")}</p></div>
+    <article className="settings-card paste-import"><h3>Pegar copia JSON</h3><p>Alternativa segura cuando el navegador no permite seleccionar archivos.</p><label><span>Contenido de la copia</span><textarea aria-label="JSON para importar" value={pastedImport} onChange={(event) => setPastedImport(event.target.value)} placeholder="Pega aquí el JSON exportado por Gym Coach u OpenGym" /></label><button className="secondary" disabled={!pastedImport.trim()} onClick={importPastedJson}>Preparar importación pegada</button></article>
     <article className="settings-card"><h3>Datos y migración</h3><p>Exporta una copia completa o importa OpenGym, Gym Coach, Strong, Hevy, FitNotes y Apple Health. El origen nunca se modifica.</p><div className="settings-actions"><button className="secondary" onClick={downloadExport}>Exportar JSON</button><label className="file-button">Importar archivo<input type="file" accept="application/json,.json,text/csv,.csv" onChange={(event) => { const file = event.target.files?.[0]; importFile(file).catch((error) => setReport({ error: error.message })); event.currentTarget.value = ""; }} /></label></div>{pendingImport && <div className="import-preview" role="status"><span className="eyebrow">VISTA PREVIA · {pendingImport.fileName}</span><h4>{pendingImport.label}</h4><div className="metric-strip"><span><strong>{pendingImport.report.workouts ?? 0}</strong> sesiones nuevas</span><span><strong>{pendingImport.report.routines ?? 0}</strong> rutinas nuevas</span><span><strong>{pendingImport.report.bodyweight ?? 0}</strong> pesos nuevos</span></div><p>{pendingImport.report.sets ?? 0} series · {pendingImport.report.customExercises ?? 0} ejercicios personalizados · {pendingImport.report.duplicates ?? 0} duplicados omitidos · {pendingImport.report.conflicts ?? 0} conflictos conservados</p>{pendingImport.report.warnings?.length > 0 && <details><summary>Revisar avisos ({pendingImport.report.warnings.length})</summary>{pendingImport.report.warnings.map((warning: string) => <small key={warning}>{warning}</small>)}</details>}<div className="settings-actions"><button className="secondary" onClick={() => setPendingImport(null)}>Cancelar</button><button onClick={applyPendingImport}>Crear copia y {pendingImport.report.portable ? "restaurar" : "fusionar"}</button></div></div>}{report && <div className={report.error ? "error-text" : "import-report"}><strong>{report.error ? "No se pudo preparar la importación" : "Importación completada"}</strong>{report.error ? <span>{report.error}</span> : report.portable ? <span>Copia completa restaurada</span> : <><span>{report.workouts} sesiones · {report.routines ?? 0} rutinas · {report.sets} series</span><span>{report.bodyweight ?? 0} pesos · {report.customExercises} ejercicios personalizados · {report.duplicates ?? 0} duplicados omitidos</span></>}</div>}</article>
     <article className="settings-card"><h3>Entrenamiento</h3><label className="setting-row"><span>Descanso automático</span><select value={state.settings.restSeconds} onChange={(event) => updateSettings({ restSeconds: Number(event.target.value) }, "Descanso actualizado")}><option value="30">30 s</option><option value="60">60 s</option><option value="90">90 s</option><option value="120">2 min</option><option value="180">3 min</option></select></label><label className="setting-row"><span>Esfuerzo</span><select value={state.settings.effortTracking} onChange={(event) => updateSettings({ effortTracking: event.target.value }, "Registro de esfuerzo actualizado")}><option value="off">Desactivado</option><option value="rir">RIR</option><option value="rpe">RPE</option></select></label><label className="setting-row"><span>Mantener pantalla activa</span><input type="checkbox" checked={state.settings.keepAwake} onChange={(event) => updateSettings({ keepAwake: event.target.checked }, "Wake lock actualizado")} /></label><label className="setting-row"><span>Recordatorio diario</span><input type="checkbox" checked={state.settings.reminder.enabled} onChange={(event) => toggleReminder(event.target.checked)} /></label><label className="setting-row"><span>Hora</span><input type="time" value={state.settings.reminder.time} onChange={(event) => updateSettings({ reminder: { ...state.settings.reminder, time: event.target.value } }, "Hora del recordatorio actualizada")} /></label></article>
     <article className="settings-card"><h3>Apariencia</h3><label className="setting-row"><span>Tema</span><select value={state.settings.theme} onChange={(event) => updateSettings({ theme: event.target.value }, "Tema actualizado")}><option value="dark">Oscuro</option><option value="light">Claro</option><option value="system">Sistema</option></select></label><label className="setting-row"><span>Acento</span><select value={state.settings.accent} onChange={(event) => updateSettings({ accent: event.target.value }, "Color actualizado")}><option value="lime">Lima</option><option value="violet">Violeta</option><option value="amber">Ámbar</option><option value="blue">Azul</option><option value="cyan">Cian</option><option value="green">Verde</option><option value="red">Rojo</option><option value="pink">Rosa</option></select></label><label className="setting-row"><span>Figura del mapa</span><select value={state.settings.bodyMap} onChange={(event) => updateSettings({ bodyMap: event.target.value }, "Figura actualizada")}><option value="male">Masculina</option><option value="female">Femenina</option></select></label></article>

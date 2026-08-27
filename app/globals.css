@@ -155,6 +155,10 @@ button { cursor: pointer; }
 .import-preview h4, .import-preview p { margin: 0; }
 .import-preview details { display: grid; gap: 6px; }
 .import-preview details small { display: block; padding-top: 4px; }
+.paste-import { display: grid; gap: 12px; }
+.paste-import label { display: grid; gap: 8px; color: var(--muted); }
+.paste-import textarea { width: 100%; min-height: 130px; resize: vertical; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); padding: 13px; color: var(--ink); }
+.paste-import button { justify-self: start; }
 .setting-row { display: flex; justify-content: space-between; gap: 18px; padding: 13px 0; border-top: 1px solid var(--line); font-size: 13px; }
 .setting-row span { color: var(--muted); }
 .setting-row select { border: 1px solid var(--line); border-radius: 9px; background: white; padding: 7px 9px; color: var(--ink); }
