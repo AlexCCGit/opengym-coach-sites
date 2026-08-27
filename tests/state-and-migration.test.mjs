@@ -46,6 +46,26 @@ test("migra minutos a segundos y conserva ejercicios desconocidos", () => {
   assert.equal(result.report.dropped, 0);
 });
 
+test("migra el historial original de Gym Coach con series numéricas y temporizadas", () => {
+  const source = {
+    history: [{
+      date: "2026-08-20T10:00:00.000Z",
+      exercises: [
+        { id: "remo-antiguo", name: "Remo antiguo", weight: 55, sets: [12, { reps: 10, weight: 60, rir: 1 }] },
+        { id: "plancha-antigua", name: "Plancha antigua", metric: "time", sets: [1, { reps: 0.75 }] },
+      ],
+    }],
+  };
+
+  const result = migrateGymCoachState(source, "user-1");
+  const [row, plank] = result.state.workouts[0].exercises;
+
+  assert.equal(result.report.workouts, 1);
+  assert.equal(result.report.sets, 4);
+  assert.deepEqual(row.sets.map((set) => [set.weight, set.reps]), [[55, 12], [60, 10]]);
+  assert.deepEqual(plank.sets.map((set) => set.seconds), [60, 45]);
+});
+
 test("fusiona sin reemplazar datos nuevos y omite duplicados", () => {
   const current = createInitialState("user-1");
   const source = {
