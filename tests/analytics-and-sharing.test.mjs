@@ -16,9 +16,13 @@ test("calcula heatmap, racha y resumen semanal", () => {
 
 test("codifica, valida y fusiona planes compartidos", () => {
   const state = createInitialState("user-1");
+  state.customExercises.push({ id: "custom-replacement", name: "Alternativa", muscle: "back", measurement: "reps", weightMode: "standard" });
+  state.routines[0].exercises[0].substitutionExerciseIds = ["custom-replacement"];
   const decoded = decodePlanBundle(encodePlanBundle(buildPlanBundle(state)));
   assert.equal(decoded.routines.length, state.routines.length);
+  assert.equal(decoded.customExercises.some((exercise) => exercise.id === "custom-replacement"), true);
   const merged = mergePlanBundle(state, decoded, true);
   assert.equal(merged.routines.length, state.routines.length * 2);
   assert.match(printablePlanHtml(state), /Guardar como PDF/);
+  assert.match(printablePlanHtml(state), /alternativas: Alternativa/);
 });

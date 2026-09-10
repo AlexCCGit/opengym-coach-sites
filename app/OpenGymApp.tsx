@@ -225,9 +225,11 @@ export function OpenGymApp() {
       startedAt: Date.now(),
       exercises: selectedRoutine.exercises.map((entry: any) => {
         const prefilled = prefillExercise(state, entry.exerciseId);
+        const plannedExercise = getExercise(state, entry.exerciseId);
         const prescription = recommendProgression({
           policy: entry.progression === "inherit" || entry.progression == null ? selectedRoutine.progression ?? "off" : entry.progression,
-          mode: exerciseMode(getExercise(state, entry.exerciseId)),
+          mode: exerciseMode(plannedExercise),
+          bodyweight: plannedExercise?.weightMode === "none",
           previousSets: prefilled.sets,
           targetReps: entry.targetReps ?? 10,
           minReps: entry.minReps ?? Math.max(1, Number(entry.targetReps ?? 10) - 2),
@@ -238,6 +240,14 @@ export function OpenGymApp() {
         });
         return {
           ...prefilled,
+          plannedExerciseId: entry.exerciseId,
+          substitutionExerciseIds: entry.substitutionExerciseIds ?? [],
+          targetReps: entry.targetReps ?? 10,
+          minReps: entry.minReps ?? Math.max(1, Number(entry.targetReps ?? 10) - 2),
+          targetSeconds: entry.targetSeconds ?? 30,
+          increment: entry.increment ?? selectedRoutine.increment ?? 2.5,
+          timeIncrement: entry.timeIncrement ?? selectedRoutine.timeIncrement ?? 5,
+          progressionPolicy: entry.progression === "inherit" || entry.progression == null ? selectedRoutine.progression ?? "off" : entry.progression,
           supersetGroup: entry.supersetGroup ?? null,
           progression: prescription,
           sets: Array.from({ length: entry.targetSets ?? prefilled.sets.length }, (_, index) => ({
@@ -337,6 +347,7 @@ function Today({ state, t, routine, todayKey, onStart, onGoRoutines, onSave }: a
 function GuidedWorkout({ workout, state, t, setWorkout, request, onCancel, onFinish }: any) {
   const [restLeft, setRestLeft] = useState(0);
   const [workTimer, setWorkTimer] = useState<any>(null);
+  const [replacementOpen, setReplacementOpen] = useState<number | null>(null);
   const previousRest = useRef(0);
   const workoutRef = useRef(workout);
   const completed = workout.exercises.flatMap((entry: any) => entry.sets).filter((set: any) => set.completed).length;
@@ -388,6 +399,44 @@ function GuidedWorkout({ workout, state, t, setWorkout, request, onCancel, onFin
       if (Capacitor.isNativePlatform()) LocalNotifications.schedule({ notifications: [{ id: 7002, title: "OpenGym", body: "Descanso terminado — siguiente serie.", schedule: { at: new Date(Date.now() + seconds * 1000) }, smallIcon: "ic_launcher_foreground" }] }).catch(() => undefined);
     }
   }, [state.settings?.restSeconds, updateSet]);
+  const replaceExercise = useCallback((exerciseIndex: number, exerciseId: string) => {
+    setWorkout((current: any) => ({
+      ...current,
+      exercises: current.exercises.map((logged: any, index: number) => {
+        if (index !== exerciseIndex || !exerciseId || logged.sets.some((set: any) => set.completed)) return logged;
+        const prefilled = prefillExercise(state, exerciseId);
+        const mode = exerciseMode(getExercise(state, exerciseId));
+        const replacementExercise = getExercise(state, exerciseId);
+        const prescription = recommendProgression({
+          policy: logged.progressionPolicy ?? "off",
+          mode,
+          bodyweight: replacementExercise?.weightMode === "none",
+          previousSets: prefilled.sets,
+          targetReps: logged.targetReps ?? 10,
+          minReps: logged.minReps ?? 8,
+          targetSeconds: logged.targetSeconds ?? 30,
+          increment: logged.increment ?? 2.5,
+          timeIncrement: logged.timeIncrement ?? 5,
+          stalls: state.progression?.[exerciseId]?.stalls ?? 0,
+        });
+        return {
+          ...logged,
+          exerciseId,
+          substitutedFor: exerciseId === logged.plannedExerciseId ? null : logged.plannedExerciseId,
+          progression: prescription,
+          sets: Array.from({ length: logged.sets.length }, (_, setIndex) => ({
+            ...(prefilled.sets[setIndex] ?? prefilled.sets.at(-1) ?? {}),
+            id: crypto.randomUUID(),
+            weight: prescription.weight,
+            reps: prescription.reps,
+            seconds: prescription.seconds,
+            completed: false,
+          })),
+        };
+      }),
+    }));
+    setReplacementOpen(null);
+  }, [setWorkout, state]);
   useEffect(() => {
     if (!workTimer) return;
     updateSet(workTimer.exerciseIndex, workTimer.setIndex, { seconds: workTimer.elapsed });
@@ -407,8 +456,10 @@ function GuidedWorkout({ workout, state, t, setWorkout, request, onCancel, onFin
       const mode = exerciseMode(exercise);
       const timed = mode === "time";
       const cardio = mode === "cardio";
-      return <article className="exercise-card" key={logged.exerciseId}>
+      const replacementIds = [logged.plannedExerciseId ?? logged.exerciseId, ...(logged.substitutionExerciseIds ?? [])].filter((id: string, index: number, values: string[]) => values.indexOf(id) === index);
+      return <article className="exercise-card" key={`${logged.plannedExerciseId ?? logged.exerciseId}-${exerciseIndex}`}>
         <div className="exercise-heading"><div><span>{exercise?.muscle ?? "ejercicio"}{logged.supersetGroup ? ` · superserie ${logged.supersetGroup}` : ""}</span><h2>{exercise?.name ?? logged.exerciseId}</h2>{exercise?.weightMode === "per-dumbbell" && <small>El peso es por mancuerna</small>}{logged.progression?.policy !== "off" && <small className="prescription">{logged.progression.reason}</small>}</div><b>{String(exerciseIndex + 1).padStart(2, "0")}</b></div>
+        {replacementIds.length > 1 && <div className="substitution-control"><button disabled={logged.sets.some((set: any) => set.completed)} onClick={() => setReplacementOpen(replacementOpen === exerciseIndex ? null : exerciseIndex)}>Máquina ocupada</button>{replacementOpen === exerciseIndex && <label><span>Usar en esta sesión</span><select value={logged.exerciseId} onChange={(event) => replaceExercise(exerciseIndex, event.target.value)}>{replacementIds.map((id: string) => { const option = getExercise(state, id); return <option key={id} value={id}>{option?.name ?? id}</option>; })}</select></label>}</div>}
         <div className="set-labels"><span>{t("Sets")}</span><span>{cardio ? t("Speed (km/h)") : t("Weight ({0})", weightLabel(unit))}</span><span>{cardio ? t("Minutes") : timed ? t("Duration") : t("Reps")}</span><span>{t("Timer")}</span><span>{t("Save")}</span></div>
         {logged.sets.map((set: any, setIndex: number) => <div className={`set-row-wrap ${set.completed ? "done" : ""}`} key={set.id}>
           <div className="set-row"><strong>{setIndex + 1}</strong><input aria-label={`${cardio ? "Velocidad" : `Peso en ${weightLabel(unit)}`} serie ${setIndex + 1}`} type="number" inputMode="decimal" value={cardio ? set.speed ?? 0 : displayWeight(set.weight ?? 0, unit)} onChange={(event) => updateSet(exerciseIndex, setIndex, cardio ? { speed: Number(event.target.value) } : { weight: kilogramsFromDisplay(event.target.value, unit) })} /><div className="stepper"><button aria-label="Restar" onClick={() => updateSet(exerciseIndex, setIndex, cardio ? { minutes: Math.max(0, Number(set.minutes ?? 0) - 1) } : timed ? { seconds: Math.max(0, Number(set.seconds ?? 0) - 5) } : { reps: Math.max(0, Number(set.reps ?? 0) - 1) })}>−</button><input aria-label={cardio ? "Minutos" : timed ? "Segundos" : "Repeticiones"} type="number" value={cardio ? set.minutes ?? 0 : timed ? set.seconds ?? 0 : set.reps ?? 0} onChange={(event) => updateSet(exerciseIndex, setIndex, cardio ? { minutes: Number(event.target.value) } : timed ? { seconds: Number(event.target.value) } : { reps: Number(event.target.value) })} /><button aria-label="Sumar" onClick={() => updateSet(exerciseIndex, setIndex, cardio ? { minutes: Number(set.minutes ?? 0) + 1 } : timed ? { seconds: Number(set.seconds ?? 0) + 5 } : { reps: Number(set.reps ?? 0) + 1 })}>+</button></div>{timed ? <button className="timer-button" disabled={Boolean(workTimer)} aria-label={`Iniciar cronómetro de la serie ${setIndex + 1}`} onClick={() => setWorkTimer({ exerciseIndex, setIndex, elapsed: 0, target: Math.max(1, Number(set.seconds ?? logged.progression?.seconds ?? 30)), running: true, finished: false })}>▶</button> : <span />}<button className="check" aria-label={`Marcar serie ${setIndex + 1}`} onClick={() => toggleCompleted(exerciseIndex, setIndex, set.completed)}>{set.completed ? "✓" : ""}</button></div>
@@ -537,12 +588,15 @@ function Routines({ state, t, onSave, onStart }: any) {
       <div className="routine-exercises">{routine.exercises.map((entry: any, index: number) => {
         const exercise = getExercise(state, entry.exerciseId); const timed = exerciseMode(exercise) === "time";
         const patchEntry = (patch: any) => updateRoutine(routine.id, (current) => ({ ...current, exercises: current.exercises.map((item: any, child: number) => child === index ? { ...item, ...patch } : item) }));
+        const substitutionIds = entry.substitutionExerciseIds ?? [];
         return <div className="routine-exercise-row" key={`${entry.exerciseId}-${index}`}><strong>{exercise?.name ?? entry.exerciseId}</strong>
           <label>{t("Sets")}<input type="number" min="1" max="20" value={entry.targetSets ?? 3} onChange={(event) => patchEntry({ targetSets: Number(event.target.value) })} /></label>
           <label>{timed ? t("Step (seconds)") : t("Reps")}<input type="number" min="1" value={timed ? entry.targetSeconds ?? 30 : entry.targetReps ?? 10} onChange={(event) => patchEntry({ [timed ? "targetSeconds" : "targetReps"]: Number(event.target.value) })} /></label>
           {!timed && <label>Reps mín<input type="number" min="1" max={entry.targetReps ?? 10} value={entry.minReps ?? Math.max(1, Number(entry.targetReps ?? 10) - 2)} onChange={(event) => patchEntry({ minReps: Number(event.target.value) })} /></label>}
           <label>Progresión<select value={entry.progression ?? "inherit"} onChange={(event) => patchEntry({ progression: event.target.value })}><option value="inherit">Heredar rutina</option><option value="off">Manual</option><option value="linear">Lineal</option><option value="greyskull">Greyskull</option><option value="double">Doble</option><option value="time">Tiempo</option></select></label>
           <label>{t("Superset")}<input value={entry.supersetGroup ?? ""} placeholder="A, B…" onChange={(event) => patchEntry({ supersetGroup: event.target.value || null })} /></label>
+          <label className="substitution-editor">Sustituciones<select value="" onChange={(event) => { const id = event.target.value; if (id) patchEntry({ substitutionExerciseIds: [...substitutionIds, id] }); }}><option value="">Añadir…</option>{allExercises.filter((item: any) => item.id !== entry.exerciseId && !substitutionIds.includes(item.id)).map((item: any) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          {substitutionIds.length > 0 && <div className="substitution-list">{substitutionIds.map((id: string) => <button key={id} title="Quitar sustitución" onClick={() => patchEntry({ substitutionExerciseIds: substitutionIds.filter((item: string) => item !== id) })}>{getExercise(state, id)?.name ?? id} ×</button>)}</div>}
           <div className="reorder-buttons"><button disabled={index === 0} onClick={() => updateRoutine(routine.id, (current) => { const exercises = [...current.exercises]; [exercises[index - 1], exercises[index]] = [exercises[index], exercises[index - 1]]; return { ...current, exercises }; })}>↑</button><button disabled={index === routine.exercises.length - 1} onClick={() => updateRoutine(routine.id, (current) => { const exercises = [...current.exercises]; [exercises[index + 1], exercises[index]] = [exercises[index], exercises[index + 1]]; return { ...current, exercises }; })}>↓</button><button onClick={() => updateRoutine(routine.id, (current) => ({ ...current, exercises: current.exercises.filter((_: any, child: number) => child !== index) }), "Ejercicio eliminado")}>×</button></div>
         </div>;
       })}</div>

@@ -4,6 +4,7 @@ import test from "node:test";
 import { applyRevisionedUpdate } from "../lib/revision.mjs";
 import { mergeGymCoachState, migrateGymCoachState } from "../lib/migration.mjs";
 import { createInitialState } from "../lib/domain.mjs";
+import { normalizeState } from "../lib/state-schema.mjs";
 
 test("rechaza una escritura con revision antigua sin modificar el estado", () => {
   const current = { revision: 4, state: { workouts: [{ id: "kept" }] } };
@@ -44,6 +45,11 @@ test("migra minutos a segundos y conserva ejercicios desconocidos", () => {
   assert.equal(result.state.customExercises[0].name, "Press vikingo casero");
   assert.equal(result.report.workouts, 1);
   assert.equal(result.report.dropped, 0);
+});
+
+test("clasifica la flexión de rodilla como trabajo de isquiotibiales", () => {
+  const result = migrateGymCoachState({ exercises: [{ name: "Flexión de rodilla" }] }, "user-1");
+  assert.equal(result.state.customExercises[0].muscle, "hamstrings");
 });
 
 test("migra el historial original de Gym Coach con series numéricas y temporizadas", () => {
@@ -156,4 +162,14 @@ test("no confunde sesiones sin id importadas en lotes distintos", () => {
   assert.equal(result.report.workouts, 1);
   assert.equal(result.report.duplicates, 0);
   assert.deepEqual(result.state.workouts.map((workout) => workout.date), ["2026-08-20T10:00:00.000Z", "2026-09-08T10:00:00.000Z"]);
+});
+
+test("normaliza sustituciones sin duplicados y las conserva en la rutina", () => {
+  const state = createInitialState("user-1");
+  state.routines[0].exercises[0].substitutionExerciseIds = ["seated-row", "seated-row", "dumbbell-curl"];
+
+  const normalized = normalizeState(state);
+  const entry = normalized.routines[0].exercises[0];
+
+  assert.deepEqual(entry.substitutionExerciseIds, ["seated-row", "dumbbell-curl"]);
 });

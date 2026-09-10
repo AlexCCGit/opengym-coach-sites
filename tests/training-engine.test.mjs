@@ -59,6 +59,24 @@ test("aplica progresión doble, Greyskull y descarga", () => {
   assert.equal(deload.deload, true);
 });
 
+test("la progresión doble no aumenta carga cuando la última sesión llegó al fallo", () => {
+  const held = recommendProgression({ policy: "double", previousSets: [{ weight: 60, reps: 12, rir: 0 }], targetReps: 12, minReps: 8, increment: 5 });
+  assert.equal(held.weight, 60);
+  assert.equal(held.reps, 12);
+  assert.match(held.reason, /mantén/);
+
+  const increased = recommendProgression({ policy: "double", previousSets: [{ weight: 60, reps: 12, rir: 2 }], targetReps: 12, minReps: 8, increment: 5 });
+  assert.equal(increased.weight, 65);
+  assert.equal(increased.reps, 8);
+});
+
+test("la progresión doble de peso corporal no inventa una carga", () => {
+  const result = recommendProgression({ policy: "double", bodyweight: true, previousSets: [{ weight: 0, reps: 15, rir: 2 }], targetReps: 15, minReps: 10, increment: 5 });
+  assert.equal(result.weight, 0);
+  assert.equal(result.reps, 15);
+  assert.match(result.reason, /variante/);
+});
+
 test("Greyskull resetea al primer fallo y el peso corporal progresa en repeticiones", () => {
   const reset = recommendProgression({ policy: "greyskull", previousSets: [{ weight: 100, reps: 4 }], targetReps: 5, stalls: 1, increment: 2.5 });
   assert.equal(reset.weight, 90);
