@@ -12,6 +12,7 @@ test("mantiene el layout móvil contenido y evita el zoom automático de formula
   assert.match(css, /grid-template-columns: repeat\(5, minmax\(0, 1fr\)\)/);
   assert.match(css, /\.bottom-nav \.nav-secondary \{ display: none; \}/);
   assert.match(css, /\.set-row \{[^}]*grid-template-areas:/s);
+  assert.match(css, /\.active-set-editor \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/s);
 });
 
 test("usa un diálogo responsive en vez de prompts nativos al iniciar", async () => {
@@ -20,4 +21,13 @@ test("usa un diálogo responsive en vez de prompts nativos al iniciar", async ()
   assert.doesNotMatch(app, /window\.prompt\(/);
   assert.match(app, /className="preworkout-dialog"/);
   assert.match(app, /className={`nav-more/);
+});
+
+test("simplifica el registro a una serie activa con cierre rápido", async () => {
+  const app = await readFile(new URL("app/OpenGymApp.tsx", root), "utf8");
+
+  assert.match(app, />Completar serie</);
+  assert.match(app, /\+ Hacer una serie extra/);
+  assert.match(app, /Añadir serie olvidada/);
+  assert.match(app, /series completadas/);
 });

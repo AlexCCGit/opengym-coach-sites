@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { detectPersonalRecords, normalizeEffort, recommendProgression, shouldStartRest, summarizeEffort, supersetUnits, updateProgressionState } from "../lib/training-engine.mjs";
+import { detectPersonalRecords, nextIncompleteSet, normalizeEffort, recommendProgression, shouldStartRest, summarizeEffort, supersetUnits, updateProgressionState, workoutSetOrder } from "../lib/training-engine.mjs";
 import { createInitialState } from "../lib/domain.mjs";
 import { exportPortableState, importPortableState, normalizeState } from "../lib/state-schema.mjs";
 
@@ -46,6 +46,21 @@ test("descansa al completar la ronda de una superserie, no entre sus ejercicios"
   exercises[0].sets[0].completed = true;
   assert.equal(shouldStartRest(exercises, 1, 0), true);
   assert.equal(shouldStartRest(exercises, 2, 0), true);
+});
+
+test("ordena una sesión por series y alterna las superseries", () => {
+  const exercises = [
+    { exerciseId: "a", sets: [{ completed: false }, { completed: false }] },
+    { exerciseId: "b", supersetGroup: "x", sets: [{ completed: false }, { completed: false }] },
+    { exerciseId: "c", supersetGroup: "x", sets: [{ completed: false }, { completed: false }] },
+  ];
+  assert.deepEqual(workoutSetOrder(exercises), [
+    { exerciseIndex: 0, setIndex: 0 }, { exerciseIndex: 0, setIndex: 1 },
+    { exerciseIndex: 1, setIndex: 0 }, { exerciseIndex: 2, setIndex: 0 },
+    { exerciseIndex: 1, setIndex: 1 }, { exerciseIndex: 2, setIndex: 1 },
+  ]);
+  exercises[0].sets[1].completed = true;
+  assert.deepEqual(nextIncompleteSet(exercises, 0, 0), { exerciseIndex: 1, setIndex: 0 });
 });
 
 test("aplica progresión doble, Greyskull y descarga", () => {
