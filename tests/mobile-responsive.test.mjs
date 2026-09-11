@@ -30,4 +30,7 @@ test("simplifica el registro a una serie activa con cierre rápido", async () =>
   assert.match(app, /\+ Hacer una serie extra/);
   assert.match(app, /Añadir serie olvidada/);
   assert.match(app, /series completadas/);
+  assert.match(app, /Repeticiones en reserva \(RIR\)/);
+  assert.doesNotMatch(app, /restLeft|Descanso automático|requestSetCompletion/);
+  assert.match(app, /previousSets: prefilled\.sets\.map\(\(set: any\) => \(\{ \.\.\.set, completed: true \}\)\)/);
 });

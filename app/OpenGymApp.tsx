@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { createInitialState, getEstimatedOneRepMaxes, getExercise, getMuscleBalance, getOneRepMaxHistory, prefillExercise, weightForTargetOneRepMax } from "../lib/domain.mjs";
 import { exportPortableState, importPortableState, normalizeState } from "../lib/state-schema.mjs";
-import { detectPersonalRecords, exerciseMode, nextIncompleteSet, recommendProgression, shouldStartRest, summarizeEffort, updateProgressionState } from "../lib/training-engine.mjs";
+import { detectPersonalRecords, exerciseMode, nextIncompleteSet, recommendProgression, summarizeEffort, updateProgressionState } from "../lib/training-engine.mjs";
 import { fetchExerciseCatalog, filterExercises, loadInstructionPack } from "../lib/exercise-catalog.mjs";
 import { importWorkoutCsv } from "../lib/csv-import.mjs";
 import { activityHeatmap, muscleFrequency, trainingStreak, weeklySummary } from "../lib/analytics.mjs";
@@ -230,7 +230,7 @@ export function OpenGymApp() {
           policy: entry.progression === "inherit" || entry.progression == null ? selectedRoutine.progression ?? "off" : entry.progression,
           mode: exerciseMode(plannedExercise),
           bodyweight: plannedExercise?.weightMode === "none",
-          previousSets: prefilled.sets,
+          previousSets: prefilled.sets.map((set: any) => ({ ...set, completed: true })),
           targetReps: entry.targetReps ?? 10,
           minReps: entry.minReps ?? Math.max(1, Number(entry.targetReps ?? 10) - 2),
           targetSeconds: entry.targetSeconds ?? 30,
@@ -348,13 +348,10 @@ function Today({ state, t, routine, todayKey, onStart, onGoRoutines, onSave }: a
 }
 
 function GuidedWorkout({ workout, state, t, setWorkout, request, onCancel, onFinish }: any) {
-  const [restLeft, setRestLeft] = useState(0);
   const [workTimer, setWorkTimer] = useState<any>(null);
   const [replacementOpen, setReplacementOpen] = useState<number | null>(null);
   const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => Math.max(0, workout.exercises.findIndex((entry: any) => entry.sets.some((set: any) => !set.completed))));
-  const [effortPrompt, setEffortPrompt] = useState<any>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const previousRest = useRef(0);
   const workoutRef = useRef(workout);
   const completed = workout.exercises.flatMap((entry: any) => entry.sets).filter((set: any) => set.completed).length;
   const total = workout.exercises.flatMap((entry: any) => entry.sets).length;
@@ -367,11 +364,6 @@ function GuidedWorkout({ workout, state, t, setWorkout, request, onCancel, onFin
   }, [request, workout.name]);
   useEffect(() => { workoutRef.current = workout; }, [workout]);
   useEffect(() => {
-    if (!restLeft) return;
-    const timer = window.setInterval(() => setRestLeft((value) => Math.max(0, value - 1)), 1000);
-    return () => window.clearInterval(timer);
-  }, [restLeft]);
-  useEffect(() => {
     if (!workTimer?.running) return;
     const timer = window.setInterval(() => setWorkTimer((current: any) => {
       if (!current?.running) return current;
@@ -381,16 +373,6 @@ function GuidedWorkout({ workout, state, t, setWorkout, request, onCancel, onFin
     return () => window.clearInterval(timer);
   }, [workTimer?.running]);
   useEffect(() => {
-    if (previousRest.current > 0 && restLeft === 0 && state.settings?.sound) {
-      const AudioContextClass = window.AudioContext ?? (window as any).webkitAudioContext;
-      if (AudioContextClass) {
-        const context = new AudioContextClass(); const oscillator = context.createOscillator(); const gain = context.createGain();
-        oscillator.frequency.value = 880; gain.gain.value = 0.08; oscillator.connect(gain); gain.connect(context.destination); oscillator.start(); oscillator.stop(context.currentTime + 0.18);
-      }
-    }
-    previousRest.current = restLeft;
-  }, [restLeft, state.settings?.sound]);
-  useEffect(() => {
     let lock: any;
     if (state.settings?.keepAwake && "wakeLock" in navigator) {
       (navigator as any).wakeLock.request("screen").then((value: any) => { lock = value; }).catch(() => undefined);
@@ -399,25 +381,17 @@ function GuidedWorkout({ workout, state, t, setWorkout, request, onCancel, onFin
   }, [state.settings?.keepAwake]);
   const finalizeSet = useCallback((exerciseIndex: number, setIndex: number, effort: any = {}) => {
     const exercises = workoutRef.current.exercises;
+    const currentSet = exercises[exerciseIndex]?.sets?.[setIndex];
     updateSet(exerciseIndex, setIndex, { completed: true, ...effort });
-    if (shouldStartRest(exercises, exerciseIndex, setIndex)) {
-      const seconds = Number(state.settings?.restSeconds ?? 90);
-      setRestLeft(seconds);
-      if (Capacitor.isNativePlatform()) LocalNotifications.schedule({ notifications: [{ id: 7002, title: "OpenGym", body: "Descanso terminado — siguiente serie.", schedule: { at: new Date(Date.now() + seconds * 1000) }, smallIcon: "ic_launcher_foreground" }] }).catch(() => undefined);
-    }
+    const nextSameExercise = exercises[exerciseIndex]?.sets?.findIndex((set: any, index: number) => index > setIndex && !set.completed) ?? -1;
+    if (nextSameExercise >= 0 && currentSet) updateSet(exerciseIndex, nextSameExercise, { weight: currentSet.weight, speed: currentSet.speed });
     const next = nextIncompleteSet(exercises, exerciseIndex, setIndex);
     if (next) setActiveExerciseIndex(next.exerciseIndex);
-    setEffortPrompt(null);
     setAdvancedOpen(false);
-  }, [state.settings?.restSeconds, updateSet]);
-  const requestSetCompletion = useCallback((exerciseIndex: number, setIndex: number) => {
-    if (state.settings?.effortTracking === "off") finalizeSet(exerciseIndex, setIndex);
-    else setEffortPrompt({ exerciseIndex, setIndex });
-  }, [finalizeSet, state.settings?.effortTracking]);
+  }, [updateSet]);
   const reopenSet = useCallback((exerciseIndex: number, setIndex: number) => {
     updateSet(exerciseIndex, setIndex, { completed: false });
     setActiveExerciseIndex(exerciseIndex);
-    setEffortPrompt(null);
   }, [updateSet]);
   const addExtraSet = useCallback((exerciseIndex: number) => {
     setWorkout((current: any) => ({ ...current, exercises: current.exercises.map((entry: any, index: number) => index !== exerciseIndex ? entry : ({ ...entry, sets: [...entry.sets, { ...(entry.sets.at(-1) ?? {}), id: crypto.randomUUID(), completed: false, rir: undefined, rpe: undefined }] })) }));
@@ -435,7 +409,7 @@ function GuidedWorkout({ workout, state, t, setWorkout, request, onCancel, onFin
           policy: logged.progressionPolicy ?? "off",
           mode,
           bodyweight: replacementExercise?.weightMode === "none",
-          previousSets: prefilled.sets,
+          previousSets: prefilled.sets.map((set: any) => ({ ...set, completed: true })),
           targetReps: logged.targetReps ?? 10,
           minReps: logged.minReps ?? 8,
           targetSeconds: logged.targetSeconds ?? 30,
@@ -468,10 +442,10 @@ function GuidedWorkout({ workout, state, t, setWorkout, request, onCancel, onFin
     updateSet(workTimer.exerciseIndex, workTimer.setIndex, { seconds: workTimer.elapsed });
     if (workTimer.finished) {
       const set = workoutRef.current.exercises[workTimer.exerciseIndex]?.sets?.[workTimer.setIndex];
-      if (!set?.completed) requestSetCompletion(workTimer.exerciseIndex, workTimer.setIndex);
+      if (!set?.completed) finalizeSet(workTimer.exerciseIndex, workTimer.setIndex);
       setWorkTimer(null);
     }
-  }, [requestSetCompletion, updateSet, workTimer]);
+  }, [finalizeSet, updateSet, workTimer]);
   const logged = workout.exercises[activeExerciseIndex] ?? workout.exercises[0];
   const exercise = logged ? getExercise(state, logged.exerciseId) : null;
   const mode = exerciseMode(exercise);
@@ -489,10 +463,9 @@ function GuidedWorkout({ workout, state, t, setWorkout, request, onCancel, onFin
   return <main className={`guided-shell theme-${state.settings?.theme ?? "dark"} accent-${state.settings?.accent ?? "lime"}`}>
     <header className="guided-header"><button className="icon-button" onClick={onCancel} aria-label={t("Discard workout?")}>×</button><div><span className="eyebrow">{t("Resume").toUpperCase()}</span><h1>{workout.name}</h1></div><span className="set-count">{completed}/{total}</span></header>
     <div className="session-progress"><span style={{ width: `${total ? completed / total * 100 : 0}%` }} /></div>
-    {restLeft > 0 && <div className="rest-timer" role="timer"><span>{t("Rest")}</span><strong>{Math.floor(restLeft / 60)}:{String(restLeft % 60).padStart(2, "0")}</strong><button onClick={() => { setRestLeft(0); if (Capacitor.isNativePlatform()) LocalNotifications.cancel({ notifications: [{ id: 7002 }] }).catch(() => undefined); }}>{t("Skip")}</button></div>}
     {workTimer && <div className="rest-timer work-timer" role="timer"><span>{t("Timed")}</span><strong>{Math.floor(workTimer.elapsed / 60)}:{String(workTimer.elapsed % 60).padStart(2, "0")} / {workTimer.target}s</strong><button onClick={() => setWorkTimer(null)}>{t("Save")}</button></div>}
     {logged && <section className="guided-content focused-guided-content">
-      <label className="exercise-jump"><span>Ejercicio</span><select value={activeExerciseIndex} onChange={(event) => { setActiveExerciseIndex(Number(event.target.value)); setEffortPrompt(null); setReplacementOpen(null); setAdvancedOpen(false); }}>{workout.exercises.map((entry: any, index: number) => { const item = getExercise(state, entry.exerciseId); const done = entry.sets.every((set: any) => set.completed); return <option key={`${entry.exerciseId}-${index}`} value={index}>{done ? "✓ " : ""}{index + 1}. {item?.name ?? entry.exerciseId}</option>; })}</select></label>
+      <label className="exercise-jump"><span>Ejercicio</span><select value={activeExerciseIndex} onChange={(event) => { setActiveExerciseIndex(Number(event.target.value)); setReplacementOpen(null); setAdvancedOpen(false); }}>{workout.exercises.map((entry: any, index: number) => { const item = getExercise(state, entry.exerciseId); const done = entry.sets.every((set: any) => set.completed); return <option key={`${entry.exerciseId}-${index}`} value={index}>{done ? "✓ " : ""}{index + 1}. {item?.name ?? entry.exerciseId}</option>; })}</select></label>
       <article className="exercise-card focused-exercise-card">
         <div className="exercise-heading"><div><span>{exercise?.muscle ?? "ejercicio"}{logged.supersetGroup ? ` · superserie ${logged.supersetGroup}` : ""}</span><h2>{exercise?.name ?? logged.exerciseId}</h2>{exercise?.weightMode === "per-dumbbell" && <small>El peso es por mancuerna</small>}{logged.progression?.policy !== "off" && <small className="prescription">{logged.progression.reason}</small>}</div><b>{String(activeExerciseIndex + 1).padStart(2, "0")}</b></div>
         {replacementIds.length > 1 && <div className="substitution-control"><button disabled={logged.sets.some((set: any) => set.completed)} onClick={() => setReplacementOpen(replacementOpen === activeExerciseIndex ? null : activeExerciseIndex)}>Máquina ocupada</button>{replacementOpen === activeExerciseIndex && <label><span>Usar en esta sesión</span><select value={logged.exerciseId} onChange={(event) => replaceExercise(activeExerciseIndex, event.target.value)}>{replacementIds.map((id: string) => { const option = getExercise(state, id); return <option key={id} value={id}>{option?.name ?? id}</option>; })}</select></label>}</div>}
@@ -506,7 +479,8 @@ function GuidedWorkout({ workout, state, t, setWorkout, request, onCancel, onFin
             {cardio && <label><span>Velocidad (km/h)</span><div className="active-stepper"><button aria-label="Restar velocidad" onClick={() => changeActiveValue({ speed: Math.max(0, Number(activeSet.speed ?? 0) - 0.5) })}>−</button><input aria-label={`Velocidad de la serie ${activeSetIndex + 1}`} type="number" value={activeSet.speed ?? 0} onChange={(event) => changeActiveValue({ speed: Number(event.target.value) })} /><button aria-label="Sumar velocidad" onClick={() => changeActiveValue({ speed: Number(activeSet.speed ?? 0) + 0.5 })}>+</button></div></label>}
             <label><span>{cardio ? "Minutos" : timed ? "Segundos" : "Repeticiones"}</span><div className="active-stepper"><button aria-label={`Restar ${cardio ? "minutos" : timed ? "segundos" : "repeticiones"}`} onClick={() => changeActiveValue({ [cardio ? "minutes" : timed ? "seconds" : "reps"]: Math.max(0, Number(cardio ? activeSet.minutes ?? 0 : timed ? activeSet.seconds ?? 0 : activeSet.reps ?? 0) - (timed ? 5 : 1)) })}>−</button><input aria-label={cardio ? "Minutos" : timed ? "Segundos" : "Repeticiones"} type="number" value={cardio ? activeSet.minutes ?? 0 : timed ? activeSet.seconds ?? 0 : activeSet.reps ?? 0} onChange={(event) => changeActiveValue({ [cardio ? "minutes" : timed ? "seconds" : "reps"]: Number(event.target.value) })} /><button aria-label={`Sumar ${cardio ? "minutos" : timed ? "segundos" : "repeticiones"}`} onClick={() => changeActiveValue({ [cardio ? "minutes" : timed ? "seconds" : "reps"]: Number(cardio ? activeSet.minutes ?? 0 : timed ? activeSet.seconds ?? 0 : activeSet.reps ?? 0) + (timed ? 5 : 1) })}>+</button></div></label>
           </div>
-          {effortPrompt?.exerciseIndex === activeExerciseIndex && effortPrompt?.setIndex === activeSetIndex ? <div className="effort-prompt" role="group" aria-label={state.settings?.effortTracking === "rpe" ? "Esfuerzo RPE" : "Repeticiones en reserva"}><strong>{state.settings?.effortTracking === "rpe" ? "¿Qué esfuerzo RPE has sentido?" : "¿Cuántas repeticiones te quedaban?"}</strong><div>{effortChoices.map((choice) => <button key={choice.label} onClick={() => finalizeSet(activeExerciseIndex, activeSetIndex, state.settings?.effortTracking === "rpe" ? { rpe: choice.value, rir: undefined } : { rir: choice.value, rpe: undefined })}>{choice.label}</button>)}</div><button className="skip-effort" onClick={() => finalizeSet(activeExerciseIndex, activeSetIndex, { rir: undefined, rpe: undefined })}>Omitir</button></div> : <button className="complete-set-button" onClick={() => requestSetCompletion(activeExerciseIndex, activeSetIndex)}>Completar serie</button>}
+          {state.settings?.effortTracking !== "off" && <div className="effort-input" role="group" aria-label={state.settings?.effortTracking === "rpe" ? "Esfuerzo RPE" : "Repeticiones en reserva"}><strong>{state.settings?.effortTracking === "rpe" ? "RPE" : "Repeticiones en reserva (RIR)"}</strong><div>{effortChoices.map((choice) => { const selected = state.settings?.effortTracking === "rpe" ? activeSet.rpe === choice.value : activeSet.rir === choice.value; return <button className={selected ? "selected" : ""} aria-pressed={selected} key={choice.label} onClick={() => changeActiveValue(state.settings?.effortTracking === "rpe" ? { rpe: choice.value, rir: undefined } : { rir: choice.value, rpe: undefined })}>{choice.label}</button>; })}</div></div>}
+          <button className="complete-set-button" onClick={() => finalizeSet(activeExerciseIndex, activeSetIndex)}>Completar serie</button>
         </div> : <div className="exercise-complete"><strong>Ejercicio completado</strong><span>{completedSets.length} series guardadas</span><button onClick={() => addExtraSet(activeExerciseIndex)}>+ Hacer una serie extra</button></div>}
       </article>
     </section>}
@@ -838,7 +812,7 @@ function Settings({ state, t, request, onSave, onLogout }: any) {
   return <div className="stack"><div className="page-title"><span className="eyebrow">OPEN GYM</span><h2>{t("Settings")}</h2><p>{t("Your workouts. Your weights. Your profile.")}</p></div>
     <article className="settings-card paste-import"><h3>Pegar copia JSON</h3><p>Alternativa segura cuando el navegador no permite seleccionar archivos.</p><label><span>Contenido de la copia</span><textarea aria-label="JSON para importar" value={pastedImport} onChange={(event) => setPastedImport(event.target.value)} placeholder="Pega aquí el JSON exportado por Gym Coach u OpenGym" /></label><button className="secondary" disabled={!pastedImport.trim()} onClick={importPastedJson}>Preparar importación pegada</button></article>
     <article className="settings-card"><h3>Datos y migración</h3><p>Exporta una copia completa o importa OpenGym, Gym Coach, Strong, Hevy, FitNotes y Apple Health. El origen nunca se modifica.</p><div className="settings-actions"><button className="secondary" onClick={downloadExport}>Exportar JSON</button><label className="file-button">Importar archivo<input type="file" accept="application/json,.json,text/csv,.csv" onChange={(event) => { const file = event.target.files?.[0]; importFile(file).catch((error) => setReport({ error: error.message })); event.currentTarget.value = ""; }} /></label></div>{pendingImport && <div className="import-preview" role="status"><span className="eyebrow">VISTA PREVIA · {pendingImport.fileName}</span><h4>{pendingImport.label}</h4><div className="metric-strip"><span><strong>{pendingImport.report.workouts ?? 0}</strong> sesiones nuevas</span><span><strong>{pendingImport.report.routines ?? 0}</strong> rutinas nuevas</span><span><strong>{pendingImport.report.bodyweight ?? 0}</strong> pesos nuevos</span></div><p>{pendingImport.report.sets ?? 0} series · {pendingImport.report.customExercises ?? 0} ejercicios personalizados · {pendingImport.report.duplicates ?? 0} duplicados omitidos · {pendingImport.report.conflicts ?? 0} conflictos conservados</p>{pendingImport.report.warnings?.length > 0 && <details><summary>Revisar avisos ({pendingImport.report.warnings.length})</summary>{pendingImport.report.warnings.map((warning: string) => <small key={warning}>{warning}</small>)}</details>}<div className="settings-actions"><button className="secondary" onClick={() => setPendingImport(null)}>Cancelar</button><button onClick={applyPendingImport}>Crear copia y {pendingImport.report.portable ? "restaurar" : "fusionar"}</button></div></div>}{report && <div className={report.error ? "error-text" : "import-report"}><strong>{report.error ? "No se pudo preparar la importación" : "Importación completada"}</strong>{report.error ? <span>{report.error}</span> : report.portable ? <span>Copia completa restaurada</span> : <><span>{report.workouts} sesiones · {report.routines ?? 0} rutinas · {report.sets} series</span><span>{report.bodyweight ?? 0} pesos · {report.customExercises} ejercicios personalizados · {report.duplicates ?? 0} duplicados omitidos</span></>}</div>}</article>
-    <article className="settings-card"><h3>Entrenamiento</h3><label className="setting-row"><span>Descanso automático</span><select value={state.settings.restSeconds} onChange={(event) => updateSettings({ restSeconds: Number(event.target.value) }, "Descanso actualizado")}><option value="30">30 s</option><option value="60">60 s</option><option value="90">90 s</option><option value="120">2 min</option><option value="180">3 min</option></select></label><label className="setting-row"><span>Esfuerzo</span><select value={state.settings.effortTracking} onChange={(event) => updateSettings({ effortTracking: event.target.value }, "Registro de esfuerzo actualizado")}><option value="off">Desactivado</option><option value="rir">RIR</option><option value="rpe">RPE</option></select></label><label className="setting-row"><span>Mantener pantalla activa</span><input type="checkbox" checked={state.settings.keepAwake} onChange={(event) => updateSettings({ keepAwake: event.target.checked }, "Wake lock actualizado")} /></label><label className="setting-row"><span>Recordatorio diario</span><input type="checkbox" checked={state.settings.reminder.enabled} onChange={(event) => toggleReminder(event.target.checked)} /></label><label className="setting-row"><span>Hora</span><input type="time" value={state.settings.reminder.time} onChange={(event) => updateSettings({ reminder: { ...state.settings.reminder, time: event.target.value } }, "Hora del recordatorio actualizada")} /></label></article>
+    <article className="settings-card"><h3>Entrenamiento</h3><label className="setting-row"><span>Esfuerzo</span><select value={state.settings.effortTracking} onChange={(event) => updateSettings({ effortTracking: event.target.value }, "Registro de esfuerzo actualizado")}><option value="off">Desactivado</option><option value="rir">RIR</option><option value="rpe">RPE</option></select></label><label className="setting-row"><span>Mantener pantalla activa</span><input type="checkbox" checked={state.settings.keepAwake} onChange={(event) => updateSettings({ keepAwake: event.target.checked }, "Wake lock actualizado")} /></label><label className="setting-row"><span>Recordatorio diario</span><input type="checkbox" checked={state.settings.reminder.enabled} onChange={(event) => toggleReminder(event.target.checked)} /></label><label className="setting-row"><span>Hora</span><input type="time" value={state.settings.reminder.time} onChange={(event) => updateSettings({ reminder: { ...state.settings.reminder, time: event.target.value } }, "Hora del recordatorio actualizada")} /></label></article>
     <article className="settings-card"><h3>Apariencia</h3><label className="setting-row"><span>Tema</span><select value={state.settings.theme} onChange={(event) => updateSettings({ theme: event.target.value }, "Tema actualizado")}><option value="dark">Oscuro</option><option value="light">Claro</option><option value="system">Sistema</option></select></label><label className="setting-row"><span>Acento</span><select value={state.settings.accent} onChange={(event) => updateSettings({ accent: event.target.value }, "Color actualizado")}><option value="lime">Lima</option><option value="violet">Violeta</option><option value="amber">Ámbar</option><option value="blue">Azul</option><option value="cyan">Cian</option><option value="green">Verde</option><option value="red">Rojo</option><option value="pink">Rosa</option></select></label><label className="setting-row"><span>Figura del mapa</span><select value={state.settings.bodyMap} onChange={(event) => updateSettings({ bodyMap: event.target.value }, "Figura actualizada")}><option value="male">Masculina</option><option value="female">Femenina</option></select></label></article>
     <article className="settings-card admin-card"><h3>Administración</h3><p>Actividad, historial, invitaciones y acceso. Disponible únicamente con <code>gym:admin</code>.</p><button className="secondary" onClick={loadAdmin}>Abrir panel</button>{adminError && <p className="error-text">{adminError}</p>}{admin && <><div className="metric-strip"><span><strong>{admin.totals.profiles}</strong> perfiles</span><span><strong>{admin.totals.active}</strong> entrenando</span><span><strong>{admin.totals.disabled}</strong> bloqueados</span></div><label className="setting-row"><span>Registro sólo por invitación</span><input type="checkbox" checked={admin.inviteOnly} onChange={(event) => patchAdmin({ inviteOnly: event.target.checked })} /></label><div className="create-row"><input value={inviteUserId} onChange={(event) => setInviteUserId(event.target.value)} placeholder="ID Auth0 que podrá crear perfil" /><button onClick={async () => { if (inviteUserId.trim() && await patchAdmin({ userId: inviteUserId.trim(), invited: true })) setInviteUserId(""); }}>Invitar</button></div><div className="admin-table">{admin.profiles.map((profile: any) => <div key={profile.user_id} className={profile.active ? "is-active" : ""}><span><strong>{profile.active ? "● " : ""}{profile.user_id}</strong><small>v{profile.revision} · {profile.workoutCount} sesiones · {new Date(profile.updated_at).toLocaleString()}</small>{profile.activity && <small>{profile.activity.routineName} desde {new Date(profile.activity.startedAt).toLocaleTimeString()}</small>}<details><summary>Últimos entrenamientos</summary>{profile.recentWorkouts.map((workout: any) => <small key={workout.id}>{new Date(workout.date).toLocaleDateString()} · {workout.name} · {workout.sets} series</small>)}</details></span><div className="admin-actions"><button onClick={() => patchAdmin({ userId: profile.user_id, disabled: !profile.disabled })}>{profile.disabled ? "Reactivar" : "Bloquear"}</button><button onClick={() => deleteProfile(profile.user_id)}>Eliminar</button></div></div>)}</div></>}</article>
     <article className="settings-card"><h3>{t("General")}</h3><label className="setting-row"><span>{t("Weight unit")}</span><select value={state.profile.weightUnit} onChange={(event) => updateProfile({ weightUnit: event.target.value }, t("Weight unit"))}><option value="kg">kg</option><option value="lb">lb</option></select></label><label className="setting-row"><span>{t("Dumbbell weight is per hand")}</span><input type="checkbox" checked={state.profile.dumbbellWeightIsPerHand} onChange={(event) => updateProfile({ dumbbellWeightIsPerHand: event.target.checked }, t("Weight unit"))} /></label><label className="setting-row"><span>{t("Language")}</span><select value={state.profile.locale} onChange={(event) => updateProfile({ locale: event.target.value }, t("Language"))}>{LANGUAGES.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label></article><article className="settings-card source"><span className="eyebrow">AGPL-3.0</span><h3>openGym</h3><p>{t("free & open source (AGPL v3)")}</p><a href="https://github.com/AlexCCGit/opengym-coach-sites" target="_blank" rel="noreferrer">{t("Source code")} ↗</a><a href="https://github.com/alexpcosta/opengym" target="_blank" rel="noreferrer">openGym ↗</a></article><button className="danger-link" onClick={onLogout}>{t("Sign out")}</button></div>;

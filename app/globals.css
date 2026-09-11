@@ -285,11 +285,11 @@ button { cursor: pointer; }
 .active-stepper button, .active-stepper input { min-height: 52px; border: 1px solid var(--line); border-radius: 11px; background: white; color: var(--ink); font-size: 20px; text-align: center; }
 .active-stepper input { width: 100%; min-width: 0; font-weight: 850; }
 .complete-set-button { width: 100%; min-height: 58px; border: 0; border-radius: 14px; background: var(--lime); color: var(--ink); font-size: 17px; font-weight: 900; }
-.effort-prompt { display: grid; gap: 10px; margin-top: 16px; padding: 14px; border-radius: 14px; background: #f0f1eb; }
-.effort-prompt > span { font-size: 13px; font-weight: 850; }
-.effort-prompt > div { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
-.effort-prompt button { min-height: 44px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); font-weight: 850; }
-.effort-prompt .effort-skip { border: 0; background: transparent; color: var(--muted); font-weight: 750; }
+.effort-input { display: grid; gap: 10px; margin-bottom: 16px; padding: 14px; border-radius: 14px; background: #f0f1eb; }
+.effort-input > strong { font-size: 13px; font-weight: 850; }
+.effort-input > div { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
+.effort-input button { min-height: 44px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); font-weight: 850; }
+.effort-input button.selected { border-color: var(--lime-deep); background: var(--lime); }
 .exercise-complete { display: grid; justify-items: center; gap: 12px; padding: 28px 20px; text-align: center; }
 .exercise-complete strong { font-size: 21px; }
 .exercise-complete p { margin: 0; color: var(--muted); }
@@ -532,9 +532,10 @@ button { cursor: pointer; }
 .guided-shell.theme-dark .completed-set-row input,
 .guided-shell.theme-dark .active-stepper button,
 .guided-shell.theme-dark .active-stepper input,
-.guided-shell.theme-dark .effort-prompt button { border-color: var(--line); background: #252c27; color: #f4f6f2; }
+.guided-shell.theme-dark .effort-input button { border-color: var(--line); background: #252c27; color: #f4f6f2; }
+.guided-shell.theme-dark .effort-input button.selected { border-color: var(--lime-deep); background: var(--lime); color: var(--ink); }
 .guided-shell.theme-dark .advanced-set-options,
-.guided-shell.theme-dark .effort-prompt { background: #242a26; }
+.guided-shell.theme-dark .effort-input { background: #242a26; }
 .guided-shell.theme-dark .set-row,
 .guided-shell.theme-dark .set-row-wrap { border-color: var(--line); }
 .guided-shell.theme-dark .set-row.done,
@@ -555,9 +556,10 @@ button { cursor: pointer; }
   .guided-shell.theme-system .completed-set-row input,
   .guided-shell.theme-system .active-stepper button,
   .guided-shell.theme-system .active-stepper input,
-  .guided-shell.theme-system .effort-prompt button { border-color: var(--line); background: #252c27; color: #f4f6f2; }
+  .guided-shell.theme-system .effort-input button { border-color: var(--line); background: #252c27; color: #f4f6f2; }
+  .guided-shell.theme-system .effort-input button.selected { border-color: var(--lime-deep); background: var(--lime); color: var(--ink); }
   .guided-shell.theme-system .advanced-set-options,
-  .guided-shell.theme-system .effort-prompt { background: #242a26; }
+  .guided-shell.theme-system .effort-input { background: #242a26; }
   .guided-shell.theme-system .set-row > input,
   .guided-shell.theme-system .stepper input { border-color: var(--line); background: #252c27; color: #f4f6f2; }
   .guided-shell.theme-system .finish-bar { background: rgba(17,21,18,.96); }
