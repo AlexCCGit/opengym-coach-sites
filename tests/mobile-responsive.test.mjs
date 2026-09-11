@@ -33,4 +33,8 @@ test("simplifica el registro a una serie activa con cierre rápido", async () =>
   assert.match(app, /Repeticiones en reserva \(RIR\)/);
   assert.doesNotMatch(app, /restLeft|Descanso automático|requestSetCompletion/);
   assert.match(app, /previousSets: prefilled\.sets\.map\(\(set: any\) => \(\{ \.\.\.set, completed: true \}\)\)/);
+  assert.match(app, /Continuar sesión/);
+  assert.match(app, /ACTIVE_WORKOUT_KEY/);
+  assert.match(app, /tracksReps/);
+  assert.match(app, /defaultRir/);
 });

@@ -56,6 +56,10 @@ button { cursor: pointer; }
 .hero-meta { display: flex; justify-content: space-between; font-size: 10px; font-weight: 800; letter-spacing: .12em; }
 .workout-hero h2 { max-width: 72%; margin: auto 0 8px; font-size: clamp(46px, 9vw, 72px); letter-spacing: -.07em; line-height: .88; }
 .workout-hero p { max-width: 470px; margin: 0 0 22px; color: #ccd1ce; line-height: 1.45; }
+.resume-workout-card { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 20px; border: 1px solid var(--lime-deep); border-radius: 20px; background: var(--surface); }
+.resume-workout-card h3 { margin: 4px 0; font-size: 22px; }
+.resume-workout-card p { margin: 0; color: var(--muted); }
+.resume-workout-card > div:last-child { display: flex; gap: 8px; }
 .progress-track, .session-progress { height: 5px; background: rgba(255,255,255,.16); border-radius: 99px; overflow: hidden; }
 .progress-track { margin-top: 22px; }
 .progress-track span, .session-progress span { display: block; height: 100%; background: var(--lime); border-radius: inherit; }
@@ -265,6 +269,7 @@ button { cursor: pointer; }
 .completed-sets summary { padding: 12px 0; cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 800; }
 .completed-sets > div { display: grid; gap: 8px; padding-bottom: 12px; }
 .completed-set-row { display: grid; grid-template-columns: 28px repeat(2, minmax(70px, 1fr)) auto; align-items: end; gap: 8px; padding: 10px; border-radius: 12px; background: #f1f7df; }
+.completed-set-row.tracks-reps { grid-template-columns: 28px repeat(2, minmax(70px, 1fr)) auto; }
 .completed-set-row > strong { align-self: center; text-align: center; }
 .completed-set-row label { display: grid; gap: 4px; color: var(--muted); font-size: 10px; font-weight: 800; }
 .completed-set-row input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 9px; background: white; padding: 8px; color: var(--ink); text-align: center; }
@@ -357,7 +362,7 @@ button { cursor: pointer; }
 @media (min-width: 720px) {
   .content { padding-inline: 22px; }
   .stack { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .stack > .page-title, .stack > .date-row, .stack > .workout-hero, .stack > .list-section, .stack > .week-editor, .stack > .create-row, .stack > .weight-card, .stack > .settings-card, .stack > .danger-link { grid-column: 1 / -1; }
+  .stack > .page-title, .stack > .date-row, .stack > .resume-workout-card, .stack > .workout-hero, .stack > .list-section, .stack > .week-editor, .stack > .create-row, .stack > .weight-card, .stack > .settings-card, .stack > .danger-link { grid-column: 1 / -1; }
   .workout-hero { min-height: 440px; }
   .history-card { grid-column: span 1; }
   .stats-card { grid-column: span 1; }
@@ -408,6 +413,8 @@ button { cursor: pointer; }
   .workout-hero h2 { z-index: 1; max-width: 100%; overflow-wrap: anywhere; font-size: clamp(40px, 9vw, 64px); line-height: .92; text-wrap: balance; }
   .workout-hero p, .workout-hero button, .workout-hero .progress-track, .hero-meta { z-index: 1; }
   .workout-hero p { max-width: 92%; color: #e5e9e6; }
+  .resume-workout-card { align-items: stretch; flex-direction: column; padding: 16px; }
+  .resume-workout-card > div:last-child { display: grid; grid-template-columns: 1fr; }
   .primary, .secondary { min-height: 48px; padding-inline: 16px; }
   .list-section, .week-editor, .stats-card, .settings-card, .routine-card { padding: 18px 16px; border-radius: 18px; }
   .section-heading h3, .week-editor h3, .stats-card h3, .settings-card h3 { font-size: 24px; }

@@ -40,6 +40,9 @@ test("conserva ejercicios temporizados y el significado por mancuerna", () => {
   const shrug = state.exercises.find((exercise) => exercise.id === "dumbbell-shrug");
 
   assert.equal(plank.measurement, "time");
+  assert.equal(plank.weightMode, "none");
+  assert.equal(plank.tracksReps, true);
+  assert.equal(plank.defaultRir, 2);
   assert.equal(shrug.weightMode, "per-dumbbell");
 });
 

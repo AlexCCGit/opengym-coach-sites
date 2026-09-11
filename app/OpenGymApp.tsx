@@ -27,6 +27,7 @@ const weightLabel = (unit: string) => unit === "lb" ? "lb" : "kg";
 const displayWeight = (kilograms: any, unit: string) => kilograms == null || kilograms === "" ? "" : Math.round(Number(kilograms) * (unit === "lb" ? LB_PER_KG : 1) * 10) / 10;
 const kilogramsFromDisplay = (value: any, unit: string) => Math.round(Number(value) / (unit === "lb" ? LB_PER_KG : 1) * 1000) / 1000;
 const NATIVE_STATE_KEY = "opengym_native_record_v2";
+const ACTIVE_WORKOUT_KEY = "opengym_active_workout_v1";
 
 async function nativeRequest(url: string, init: RequestInit = {}) {
   const path = new URL(url, "https://native.opengym").pathname.replace(/\/$/, "");
@@ -86,6 +87,7 @@ export function OpenGymApp() {
   const [busy, setBusy] = useState(true);
   const [message, setMessage] = useState("");
   const [activeWorkout, setActiveWorkout] = useState<any>(null);
+  const [pausedWorkout, setPausedWorkout] = useState<any>(null);
   const [catalog, setCatalog] = useState<any[]>([]);
   const [catalogError, setCatalogError] = useState("");
   const [uiDictionary, setUiDictionary] = useState<Record<string, string>>({});
@@ -154,6 +156,16 @@ export function OpenGymApp() {
   useEffect(() => {
     if (record?.state && Capacitor.isNativePlatform()) scheduleWorkoutReminders(record.state).catch(() => undefined);
   }, [record?.state]);
+  useEffect(() => {
+    if (!record?.state?.userId || activeWorkout || pausedWorkout) return;
+    try {
+      const draft = JSON.parse(localStorage.getItem(ACTIVE_WORKOUT_KEY) ?? "null");
+      if (draft?.userId === record.state.userId && draft.workout?.id) setPausedWorkout(draft.workout);
+    } catch { localStorage.removeItem(ACTIVE_WORKOUT_KEY); }
+  }, [activeWorkout, pausedWorkout, record?.state?.userId]);
+  useEffect(() => {
+    if (activeWorkout && record?.state?.userId) localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify({ userId: record.state.userId, workout: activeWorkout }));
+  }, [activeWorkout, record?.state?.userId]);
 
   async function login() {
     if (!config) return;
@@ -255,9 +267,9 @@ export function OpenGymApp() {
             ...(prefilled.sets[index] ?? prefilled.sets.at(-1)),
             id: crypto.randomUUID(),
             weight: prescription.weight,
-            reps: prescription.reps,
+            reps: plannedExercise?.tracksReps ? Number(prefilled.sets[index]?.reps ?? prefilled.sets.at(-1)?.reps ?? entry.targetReps ?? 0) : prescription.reps,
             seconds: prescription.seconds,
-            rir: undefined,
+            rir: plannedExercise?.defaultRir,
             rpe: undefined,
             completed: false,
           })),
@@ -282,14 +294,14 @@ export function OpenGymApp() {
   }
 
   if (activeWorkout) {
-    return <GuidedWorkout workout={activeWorkout} state={state} t={t} setWorkout={setActiveWorkout} request={request} onCancel={() => { request("/api/activity/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "idle" }) }).catch(() => undefined); setActiveWorkout(null); }} onFinish={async () => {
+    return <GuidedWorkout workout={activeWorkout} state={state} t={t} setWorkout={setActiveWorkout} request={request} onPause={() => { request("/api/activity/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "idle" }) }).catch(() => undefined); setPausedWorkout(activeWorkout); setActiveWorkout(null); }} onFinish={async () => {
       const finished = { ...activeWorkout, durationSeconds: Math.max(60, Math.round((Date.now() - activeWorkout.startedAt) / 1000)) };
       delete finished.startedAt;
       const records = detectPersonalRecords(state.workouts, finished);
       const trainedMuscles = [...new Set(finished.exercises.flatMap((entry: any) => { const exercise = getExercise(state, entry.exerciseId); return [exercise?.muscle, exercise?.mainMuscle, ...(exercise?.secondaryMuscles ?? [])].filter(Boolean); }))];
       const success = `${records.length ? `Entrenamiento guardado · ${records.length} nueva${records.length === 1 ? "" : "s"} marca${records.length === 1 ? "" : "s"}` : "Entrenamiento guardado. Buen trabajo."}${trainedMuscles.length ? ` · Trabajaste ${trainedMuscles.slice(0, 4).join(", ")}` : ""}`;
       const progression = updateProgressionState(state.progression, finished);
-      if (await save({ ...state, progression, workouts: [...state.workouts, finished] }, success)) { await request("/api/activity/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "idle" }) }); setActiveWorkout(null); }
+      if (await save({ ...state, progression, workouts: [...state.workouts, finished] }, success)) { await request("/api/activity/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "idle" }) }); localStorage.removeItem(ACTIVE_WORKOUT_KEY); setPausedWorkout(null); setActiveWorkout(null); }
     }} />;
   }
 
@@ -299,7 +311,7 @@ export function OpenGymApp() {
       {message && <div className="toast" role="status">{message}</div>}
 
       <section className="content">
-        {tab === "hoy" && <Today state={state} t={t} routine={routine} todayKey={todayKey} onStart={() => startWorkout()} onGoRoutines={() => setTab("rutinas")} onSave={save} />}
+        {tab === "hoy" && <Today state={state} t={t} routine={routine} todayKey={todayKey} pausedWorkout={pausedWorkout} onResume={() => { setActiveWorkout(pausedWorkout); setPausedWorkout(null); }} onDiscard={() => { localStorage.removeItem(ACTIVE_WORKOUT_KEY); setPausedWorkout(null); }} onStart={() => startWorkout()} onGoRoutines={() => setTab("rutinas")} onSave={save} />}
         {tab === "coach" && <Coach state={state} t={t} request={request} onSave={save} />}
         {tab === "biblioteca" && <Library state={state} t={t} catalog={catalog} error={catalogError} onSave={save} />}
         {tab === "rutinas" && <Routines state={state} t={t} onSave={save} onStart={startWorkout} />}
@@ -329,11 +341,12 @@ function SignIn({ onLogin, configured }: { onLogin: () => void; configured: bool
   return <main className="sign-in"><div className="sign-in-card"><span className="eyebrow">OPEN GYM COACH</span><div className="hero-number">01</div><h1>Tu progreso no debería vivir encerrado en otra app.</h1><p>Rutinas, sesiones y marcas sincronizadas. Tus datos siguen siendo tuyos y ChatGPT puede ayudarte cuando tú lo decidas.</p><button className="primary" onClick={onLogin} disabled={!configured}>Entrar de forma segura <span>→</span></button>{!configured && <small>La conexión segura se está configurando.</small>}<a href="https://github.com/AlexCCGit/opengym-coach-sites" target="_blank" rel="noreferrer">Código fuente AGPL-3.0</a></div></main>;
 }
 
-function Today({ state, t, routine, todayKey, onStart, onGoRoutines, onSave }: any) {
+function Today({ state, t, routine, todayKey, pausedWorkout, onResume, onDiscard, onStart, onGoRoutines, onSave }: any) {
   const latest = [...state.workouts].sort((a: any, b: any) => b.date.localeCompare(a.date))[0];
   const dateKey = new Date().toISOString().slice(0, 10);
   return <div className="stack">
     <div className="date-row"><span>{t(DAY_TRANSLATION_KEYS[todayKey])}</span><strong>{new Intl.DateTimeFormat(state.profile?.locale ?? "es", { day: "numeric", month: "long" }).format(new Date())}</strong></div>
+    {pausedWorkout && <section className="resume-workout-card"><div><span className="eyebrow">SESIÓN EN CURSO</span><h3>{pausedWorkout.name}</h3><p>{pausedWorkout.exercises.flatMap((entry: any) => entry.sets).filter((set: any) => set.completed).length} series completadas</p></div><div><button className="primary" onClick={onResume}>Continuar sesión <span>→</span></button><button className="secondary" onClick={onDiscard}>Descartar</button></div></section>}
     <article className="workout-hero">
       <div className="hero-meta"><span>{t("Today's plan").toUpperCase()}</span><span>{routine ? t(routine.exercises.length === 1 ? "{0} exercise" : "{0} exercises", routine.exercises.length) : t("Rest")}</span></div>
       <h2>{routine?.name ?? t("Rest day")}</h2>
@@ -347,7 +360,7 @@ function Today({ state, t, routine, todayKey, onStart, onGoRoutines, onSave }: a
   </div>;
 }
 
-function GuidedWorkout({ workout, state, t, setWorkout, request, onCancel, onFinish }: any) {
+function GuidedWorkout({ workout, state, t, setWorkout, request, onPause, onFinish }: any) {
   const [workTimer, setWorkTimer] = useState<any>(null);
   const [replacementOpen, setReplacementOpen] = useState<number | null>(null);
   const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => Math.max(0, workout.exercises.findIndex((entry: any) => entry.sets.some((set: any) => !set.completed))));
@@ -382,13 +395,15 @@ function GuidedWorkout({ workout, state, t, setWorkout, request, onCancel, onFin
   const finalizeSet = useCallback((exerciseIndex: number, setIndex: number, effort: any = {}) => {
     const exercises = workoutRef.current.exercises;
     const currentSet = exercises[exerciseIndex]?.sets?.[setIndex];
-    updateSet(exerciseIndex, setIndex, { completed: true, ...effort });
+    const currentExercise = getExercise(state, exercises[exerciseIndex]?.exerciseId);
+    const defaultEffort = currentSet?.rir == null && currentExercise?.defaultRir != null ? { rir: currentExercise.defaultRir } : {};
+    updateSet(exerciseIndex, setIndex, { completed: true, ...defaultEffort, ...effort });
     const nextSameExercise = exercises[exerciseIndex]?.sets?.findIndex((set: any, index: number) => index > setIndex && !set.completed) ?? -1;
     if (nextSameExercise >= 0 && currentSet) updateSet(exerciseIndex, nextSameExercise, { weight: currentSet.weight, speed: currentSet.speed });
     const next = nextIncompleteSet(exercises, exerciseIndex, setIndex);
     if (next) setActiveExerciseIndex(next.exerciseIndex);
     setAdvancedOpen(false);
-  }, [updateSet]);
+  }, [state, updateSet]);
   const reopenSet = useCallback((exerciseIndex: number, setIndex: number) => {
     updateSet(exerciseIndex, setIndex, { completed: false });
     setActiveExerciseIndex(exerciseIndex);
@@ -426,9 +441,9 @@ function GuidedWorkout({ workout, state, t, setWorkout, request, onCancel, onFin
             ...(prefilled.sets[setIndex] ?? prefilled.sets.at(-1) ?? {}),
             id: crypto.randomUUID(),
             weight: prescription.weight,
-            reps: prescription.reps,
+            reps: replacementExercise?.tracksReps ? Number(prefilled.sets[setIndex]?.reps ?? prefilled.sets.at(-1)?.reps ?? logged.targetReps ?? 0) : prescription.reps,
             seconds: prescription.seconds,
-            rir: undefined,
+            rir: replacementExercise?.defaultRir,
             rpe: undefined,
             completed: false,
           })),
@@ -460,8 +475,9 @@ function GuidedWorkout({ workout, state, t, setWorkout, request, onCancel, onFin
   const priorSet = priorLogged?.sets?.[Math.min(Math.max(activeSetIndex, 0), priorLogged.sets.length - 1)] ?? priorLogged?.sets?.at(-1);
   const changeActiveValue = (patch: any) => activeSetIndex >= 0 && updateSet(activeExerciseIndex, activeSetIndex, patch);
   const effortChoices = state.settings?.effortTracking === "rpe" ? [{ label: "10", value: 10 }, { label: "9", value: 9 }, { label: "8", value: 8 }, { label: "≤7", value: 7 }] : [{ label: "0", value: 0 }, { label: "1", value: 1 }, { label: "2", value: 2 }, { label: "3+", value: 3 }];
+  const activeEffortValue = state.settings?.effortTracking === "rpe" ? activeSet?.rpe : activeSet?.rir ?? exercise?.defaultRir;
   return <main className={`guided-shell theme-${state.settings?.theme ?? "dark"} accent-${state.settings?.accent ?? "lime"}`}>
-    <header className="guided-header"><button className="icon-button" onClick={onCancel} aria-label={t("Discard workout?")}>×</button><div><span className="eyebrow">{t("Resume").toUpperCase()}</span><h1>{workout.name}</h1></div><span className="set-count">{completed}/{total}</span></header>
+    <header className="guided-header"><button className="icon-button" onClick={onPause} aria-label="Pausar sesión">←</button><div><span className="eyebrow">ENTRENANDO</span><h1>{workout.name}</h1></div><span className="set-count">{completed}/{total}</span></header>
     <div className="session-progress"><span style={{ width: `${total ? completed / total * 100 : 0}%` }} /></div>
     {workTimer && <div className="rest-timer work-timer" role="timer"><span>{t("Timed")}</span><strong>{Math.floor(workTimer.elapsed / 60)}:{String(workTimer.elapsed % 60).padStart(2, "0")} / {workTimer.target}s</strong><button onClick={() => setWorkTimer(null)}>{t("Save")}</button></div>}
     {logged && <section className="guided-content focused-guided-content">
@@ -469,17 +485,18 @@ function GuidedWorkout({ workout, state, t, setWorkout, request, onCancel, onFin
       <article className="exercise-card focused-exercise-card">
         <div className="exercise-heading"><div><span>{exercise?.muscle ?? "ejercicio"}{logged.supersetGroup ? ` · superserie ${logged.supersetGroup}` : ""}</span><h2>{exercise?.name ?? logged.exerciseId}</h2>{exercise?.weightMode === "per-dumbbell" && <small>El peso es por mancuerna</small>}{logged.progression?.policy !== "off" && <small className="prescription">{logged.progression.reason}</small>}</div><b>{String(activeExerciseIndex + 1).padStart(2, "0")}</b></div>
         {replacementIds.length > 1 && <div className="substitution-control"><button disabled={logged.sets.some((set: any) => set.completed)} onClick={() => setReplacementOpen(replacementOpen === activeExerciseIndex ? null : activeExerciseIndex)}>Máquina ocupada</button>{replacementOpen === activeExerciseIndex && <label><span>Usar en esta sesión</span><select value={logged.exerciseId} onChange={(event) => replaceExercise(activeExerciseIndex, event.target.value)}>{replacementIds.map((id: string) => { const option = getExercise(state, id); return <option key={id} value={id}>{option?.name ?? id}</option>; })}</select></label>}</div>}
-        {completedSets.length > 0 && <details className="completed-sets"><summary>{completedSets.length} {completedSets.length === 1 ? "serie completada" : "series completadas"}</summary><div>{completedSets.map(({ set, index: setIndex }: any) => <div className="completed-set-row" key={set.id}><strong>{setIndex + 1}</strong>{exercise?.weightMode !== "none" && !cardio && <label>Peso<input aria-label={`Peso de la serie ${setIndex + 1}`} type="number" value={displayWeight(set.weight ?? 0, unit)} onChange={(event) => updateSet(activeExerciseIndex, setIndex, { weight: kilogramsFromDisplay(event.target.value, unit) })} /></label>}{cardio && <label>Velocidad<input aria-label={`Velocidad de la serie ${setIndex + 1}`} type="number" value={set.speed ?? 0} onChange={(event) => updateSet(activeExerciseIndex, setIndex, { speed: Number(event.target.value) })} /></label>}<label>{cardio ? "Min" : timed ? "Seg" : "Reps"}<input aria-label={`${cardio ? "Minutos" : timed ? "Segundos" : "Repeticiones"} de la serie ${setIndex + 1}`} type="number" value={cardio ? set.minutes ?? 0 : timed ? set.seconds ?? 0 : set.reps ?? 0} onChange={(event) => updateSet(activeExerciseIndex, setIndex, { [cardio ? "minutes" : timed ? "seconds" : "reps"]: Number(event.target.value) })} /></label><button onClick={() => reopenSet(activeExerciseIndex, setIndex)}>Reabrir</button></div>)}</div></details>}
+        {completedSets.length > 0 && <details className="completed-sets"><summary>{completedSets.length} {completedSets.length === 1 ? "serie completada" : "series completadas"}</summary><div>{completedSets.map(({ set, index: setIndex }: any) => <div className={`completed-set-row ${exercise?.tracksReps ? "tracks-reps" : ""}`} key={set.id}><strong>{setIndex + 1}</strong>{exercise?.weightMode !== "none" && !cardio && <label>Peso<input aria-label={`Peso de la serie ${setIndex + 1}`} type="number" value={displayWeight(set.weight ?? 0, unit)} onChange={(event) => updateSet(activeExerciseIndex, setIndex, { weight: kilogramsFromDisplay(event.target.value, unit) })} /></label>}{cardio && <label>Velocidad<input aria-label={`Velocidad de la serie ${setIndex + 1}`} type="number" value={set.speed ?? 0} onChange={(event) => updateSet(activeExerciseIndex, setIndex, { speed: Number(event.target.value) })} /></label>}<label>{cardio ? "Min" : timed ? "Seg" : "Reps"}<input aria-label={`${cardio ? "Minutos" : timed ? "Segundos" : "Repeticiones"} de la serie ${setIndex + 1}`} type="number" value={cardio ? set.minutes ?? 0 : timed ? set.seconds ?? 0 : set.reps ?? 0} onChange={(event) => updateSet(activeExerciseIndex, setIndex, { [cardio ? "minutes" : timed ? "seconds" : "reps"]: Number(event.target.value) })} /></label>{timed && exercise?.tracksReps && <label>Reps<input aria-label={`Repeticiones de la serie ${setIndex + 1}`} type="number" value={set.reps ?? 0} onChange={(event) => updateSet(activeExerciseIndex, setIndex, { reps: Number(event.target.value) })} /></label>}<button onClick={() => reopenSet(activeExerciseIndex, setIndex)}>Reabrir</button></div>)}</div></details>}
         {activeSet ? <div className="active-set-panel">
           <div className="active-set-title"><div><span>{activeSetIndex >= plannedSetCount ? "Serie extra" : `Serie ${activeSetIndex + 1} de ${plannedSetCount}`}</span><strong>{timed ? `${logged.targetSeconds ?? activeSet.seconds ?? 30} segundos` : cardio ? "Cardio" : `${logged.minReps ?? 1}–${logged.targetReps ?? activeSet.reps ?? 10} repeticiones`}</strong></div>{timed && <button className="more-button" aria-label="Opciones de temporizador" onClick={() => setAdvancedOpen(!advancedOpen)}>⋯</button>}</div>
-          {priorSet && <p className="last-reference">Última referencia: {exercise?.weightMode !== "none" ? `${displayWeight(priorSet.weight ?? 0, unit)} ${weightLabel(unit)} · ` : ""}{timed ? `${priorSet.seconds ?? 0} s` : cardio ? `${priorSet.speed ?? 0} km/h · ${priorSet.minutes ?? 0} min` : `${priorSet.reps ?? 0} reps`}</p>}
+          {priorSet && <p className="last-reference">Última referencia: {exercise?.weightMode !== "none" ? `${displayWeight(priorSet.weight ?? 0, unit)} ${weightLabel(unit)} · ` : ""}{timed ? `${priorSet.seconds ?? 0} s${exercise?.tracksReps ? ` · ${priorSet.reps ?? 0} reps` : ""}` : cardio ? `${priorSet.speed ?? 0} km/h · ${priorSet.minutes ?? 0} min` : `${priorSet.reps ?? 0} reps`}</p>}
           {advancedOpen && timed && <div className="advanced-set-options"><button disabled={Boolean(workTimer)} onClick={() => setWorkTimer({ exerciseIndex: activeExerciseIndex, setIndex: activeSetIndex, elapsed: 0, target: Math.max(1, Number(activeSet.seconds ?? logged.progression?.seconds ?? 30)), running: true, finished: false })}>▶ Iniciar temporizador</button></div>}
-          <div className={`active-set-editor ${exercise?.weightMode === "none" && !cardio ? "single-value" : ""}`}>
+          <div className={`active-set-editor ${exercise?.weightMode === "none" && !cardio && !exercise?.tracksReps ? "single-value" : ""}`}>
             {exercise?.weightMode !== "none" && !cardio && <label><span>Peso ({weightLabel(unit)})</span><div className="active-stepper"><button aria-label="Restar peso" onClick={() => changeActiveValue({ weight: Math.max(0, Number(activeSet.weight ?? 0) - Number(logged.increment ?? 2.5)) })}>−</button><input aria-label={`Peso de la serie ${activeSetIndex + 1}`} type="number" inputMode="decimal" value={displayWeight(activeSet.weight ?? 0, unit)} onChange={(event) => changeActiveValue({ weight: kilogramsFromDisplay(event.target.value, unit) })} /><button aria-label="Sumar peso" onClick={() => changeActiveValue({ weight: Number(activeSet.weight ?? 0) + Number(logged.increment ?? 2.5) })}>+</button></div></label>}
             {cardio && <label><span>Velocidad (km/h)</span><div className="active-stepper"><button aria-label="Restar velocidad" onClick={() => changeActiveValue({ speed: Math.max(0, Number(activeSet.speed ?? 0) - 0.5) })}>−</button><input aria-label={`Velocidad de la serie ${activeSetIndex + 1}`} type="number" value={activeSet.speed ?? 0} onChange={(event) => changeActiveValue({ speed: Number(event.target.value) })} /><button aria-label="Sumar velocidad" onClick={() => changeActiveValue({ speed: Number(activeSet.speed ?? 0) + 0.5 })}>+</button></div></label>}
             <label><span>{cardio ? "Minutos" : timed ? "Segundos" : "Repeticiones"}</span><div className="active-stepper"><button aria-label={`Restar ${cardio ? "minutos" : timed ? "segundos" : "repeticiones"}`} onClick={() => changeActiveValue({ [cardio ? "minutes" : timed ? "seconds" : "reps"]: Math.max(0, Number(cardio ? activeSet.minutes ?? 0 : timed ? activeSet.seconds ?? 0 : activeSet.reps ?? 0) - (timed ? 5 : 1)) })}>−</button><input aria-label={cardio ? "Minutos" : timed ? "Segundos" : "Repeticiones"} type="number" value={cardio ? activeSet.minutes ?? 0 : timed ? activeSet.seconds ?? 0 : activeSet.reps ?? 0} onChange={(event) => changeActiveValue({ [cardio ? "minutes" : timed ? "seconds" : "reps"]: Number(event.target.value) })} /><button aria-label={`Sumar ${cardio ? "minutos" : timed ? "segundos" : "repeticiones"}`} onClick={() => changeActiveValue({ [cardio ? "minutes" : timed ? "seconds" : "reps"]: Number(cardio ? activeSet.minutes ?? 0 : timed ? activeSet.seconds ?? 0 : activeSet.reps ?? 0) + (timed ? 5 : 1) })}>+</button></div></label>
+            {timed && exercise?.tracksReps && <label><span>Repeticiones</span><div className="active-stepper"><button aria-label="Restar repeticiones" onClick={() => changeActiveValue({ reps: Math.max(0, Number(activeSet.reps ?? 0) - 1) })}>−</button><input aria-label="Repeticiones" type="number" value={activeSet.reps ?? 0} onChange={(event) => changeActiveValue({ reps: Number(event.target.value) })} /><button aria-label="Sumar repeticiones" onClick={() => changeActiveValue({ reps: Number(activeSet.reps ?? 0) + 1 })}>+</button></div></label>}
           </div>
-          {state.settings?.effortTracking !== "off" && <div className="effort-input" role="group" aria-label={state.settings?.effortTracking === "rpe" ? "Esfuerzo RPE" : "Repeticiones en reserva"}><strong>{state.settings?.effortTracking === "rpe" ? "RPE" : "Repeticiones en reserva (RIR)"}</strong><div>{effortChoices.map((choice) => { const selected = state.settings?.effortTracking === "rpe" ? activeSet.rpe === choice.value : activeSet.rir === choice.value; return <button className={selected ? "selected" : ""} aria-pressed={selected} key={choice.label} onClick={() => changeActiveValue(state.settings?.effortTracking === "rpe" ? { rpe: choice.value, rir: undefined } : { rir: choice.value, rpe: undefined })}>{choice.label}</button>; })}</div></div>}
+          {state.settings?.effortTracking !== "off" && <div className="effort-input" role="group" aria-label={state.settings?.effortTracking === "rpe" ? "Esfuerzo RPE" : "Repeticiones en reserva"}><strong>{state.settings?.effortTracking === "rpe" ? "RPE" : "Repeticiones en reserva (RIR)"}</strong><div>{effortChoices.map((choice) => { const selected = activeEffortValue === choice.value; return <button className={selected ? "selected" : ""} aria-pressed={selected} key={choice.label} onClick={() => changeActiveValue(state.settings?.effortTracking === "rpe" ? { rpe: choice.value, rir: undefined } : { rir: choice.value, rpe: undefined })}>{choice.label}</button>; })}</div></div>}
           <button className="complete-set-button" onClick={() => finalizeSet(activeExerciseIndex, activeSetIndex)}>Completar serie</button>
         </div> : <div className="exercise-complete"><strong>Ejercicio completado</strong><span>{completedSets.length} series guardadas</span><button onClick={() => addExtraSet(activeExerciseIndex)}>+ Hacer una serie extra</button></div>}
       </article>
@@ -631,7 +648,7 @@ function History({ state, t, onSave }: any) {
       <div className="history-date"><strong>{new Intl.DateTimeFormat(locale, { day: "2-digit" }).format(new Date(workout.date))}</strong><span>{new Intl.DateTimeFormat(locale, { month: "short", year: "numeric" }).format(new Date(workout.date))}</span></div>
       <div className="history-body"><h3>{workout.name}</h3><small>{Math.round((workout.durationSeconds ?? 0) / 60)} min · {workout.exercises.reduce((sum: number, entry: any) => sum + entry.sets.length, 0)} series</small>
         {workout.exercises.map((entry: any, exerciseIndex: number) => { const exercise = getExercise(state, entry.exerciseId); return <details key={`${workout.id}-${entry.exerciseId}`}><summary>{exercise?.name ?? entry.exerciseId}<span>{entry.sets.length} series</span></summary>
-          {entry.sets.map((set: any, setIndex: number) => <div className="compact-set" key={set.id}><span>{setIndex + 1}</span>{exercise?.measurement === "time" ? <><input type="number" value={set.seconds ?? 0} onChange={(event) => editSet(workout.id, exerciseIndex, setIndex, "seconds", Number(event.target.value))} /><em>seg</em></> : <><input type="number" value={displayWeight(set.weight ?? 0, unit)} onChange={(event) => editSet(workout.id, exerciseIndex, setIndex, "weight", kilogramsFromDisplay(event.target.value, unit))} /><em>{weightLabel(unit)} ×</em><input type="number" value={set.reps ?? 0} onChange={(event) => editSet(workout.id, exerciseIndex, setIndex, "reps", Number(event.target.value))} /></>}</div>)}
+          {entry.sets.map((set: any, setIndex: number) => <div className="compact-set" key={set.id}><span>{setIndex + 1}</span>{exercise?.measurement === "time" ? <><input aria-label="Segundos" type="number" value={set.seconds ?? 0} onChange={(event) => editSet(workout.id, exerciseIndex, setIndex, "seconds", Number(event.target.value))} /><em>seg</em>{exercise?.tracksReps && <><input aria-label="Repeticiones" type="number" value={set.reps ?? 0} onChange={(event) => editSet(workout.id, exerciseIndex, setIndex, "reps", Number(event.target.value))} /><em>reps</em></>}</> : <><input type="number" value={displayWeight(set.weight ?? 0, unit)} onChange={(event) => editSet(workout.id, exerciseIndex, setIndex, "weight", kilogramsFromDisplay(event.target.value, unit))} /><em>{weightLabel(unit)} ×</em><input type="number" value={set.reps ?? 0} onChange={(event) => editSet(workout.id, exerciseIndex, setIndex, "reps", Number(event.target.value))} /></>}</div>)}
           <button className="add-row" onClick={() => { const last = entry.sets.at(-1) ?? {}; const next = { ...state, workouts: state.workouts.map((item: any) => item.id !== workout.id ? item : ({ ...item, exercises: item.exercises.map((logged: any, index: number) => index !== exerciseIndex ? logged : ({ ...logged, sets: [...logged.sets, { ...last, id: crypto.randomUUID() }] })) })) }; onSave(next, "Serie olvidada añadida al historial"); }}>+ Añadir serie olvidada</button>
         </details>; })}
       </div>
