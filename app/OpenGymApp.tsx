@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { createInitialState, getEstimatedOneRepMaxes, getExercise, getMuscleBalance, getOneRepMaxHistory, prefillExercise, weightForTargetOneRepMax } from "../lib/domain.mjs";
 import { exportPortableState, importPortableState, normalizeState } from "../lib/state-schema.mjs";
-import { detectPersonalRecords, exerciseMode, nextIncompleteSet, recommendProgression, summarizeEffort, updateProgressionState } from "../lib/training-engine.mjs";
+import { detectPersonalRecords, exerciseMode, initialRir, nextIncompleteSet, recommendProgression, summarizeEffort, updateProgressionState } from "../lib/training-engine.mjs";
 import { fetchExerciseCatalog, filterExercises, loadInstructionPack } from "../lib/exercise-catalog.mjs";
 import { importWorkoutCsv } from "../lib/csv-import.mjs";
 import { activityHeatmap, muscleFrequency, trainingStreak, weeklySummary } from "../lib/analytics.mjs";
@@ -269,7 +269,7 @@ export function OpenGymApp() {
             weight: prescription.weight,
             reps: plannedExercise?.tracksReps ? Number(prefilled.sets[index]?.reps ?? prefilled.sets.at(-1)?.reps ?? entry.targetReps ?? 0) : prescription.reps,
             seconds: prescription.seconds,
-            rir: plannedExercise?.defaultRir,
+            rir: state.settings?.effortTracking === "rir" ? initialRir(plannedExercise) : undefined,
             rpe: undefined,
             completed: false,
           })),
@@ -396,7 +396,7 @@ function GuidedWorkout({ workout, state, t, setWorkout, request, onPause, onFini
     const exercises = workoutRef.current.exercises;
     const currentSet = exercises[exerciseIndex]?.sets?.[setIndex];
     const currentExercise = getExercise(state, exercises[exerciseIndex]?.exerciseId);
-    const defaultEffort = currentSet?.rir == null && currentExercise?.defaultRir != null ? { rir: currentExercise.defaultRir } : {};
+    const defaultEffort = state.settings?.effortTracking === "rir" && currentSet?.rir == null ? { rir: initialRir(currentExercise) } : {};
     updateSet(exerciseIndex, setIndex, { completed: true, ...defaultEffort, ...effort });
     const nextSameExercise = exercises[exerciseIndex]?.sets?.findIndex((set: any, index: number) => index > setIndex && !set.completed) ?? -1;
     if (nextSameExercise >= 0 && currentSet) updateSet(exerciseIndex, nextSameExercise, { weight: currentSet.weight, speed: currentSet.speed });
@@ -443,7 +443,7 @@ function GuidedWorkout({ workout, state, t, setWorkout, request, onPause, onFini
             weight: prescription.weight,
             reps: replacementExercise?.tracksReps ? Number(prefilled.sets[setIndex]?.reps ?? prefilled.sets.at(-1)?.reps ?? logged.targetReps ?? 0) : prescription.reps,
             seconds: prescription.seconds,
-            rir: replacementExercise?.defaultRir,
+            rir: state.settings?.effortTracking === "rir" ? initialRir(replacementExercise) : undefined,
             rpe: undefined,
             completed: false,
           })),
@@ -475,7 +475,7 @@ function GuidedWorkout({ workout, state, t, setWorkout, request, onPause, onFini
   const priorSet = priorLogged?.sets?.[Math.min(Math.max(activeSetIndex, 0), priorLogged.sets.length - 1)] ?? priorLogged?.sets?.at(-1);
   const changeActiveValue = (patch: any) => activeSetIndex >= 0 && updateSet(activeExerciseIndex, activeSetIndex, patch);
   const effortChoices = state.settings?.effortTracking === "rpe" ? [{ label: "10", value: 10 }, { label: "9", value: 9 }, { label: "8", value: 8 }, { label: "≤7", value: 7 }] : [{ label: "0", value: 0 }, { label: "1", value: 1 }, { label: "2", value: 2 }, { label: "3+", value: 3 }];
-  const activeEffortValue = state.settings?.effortTracking === "rpe" ? activeSet?.rpe : activeSet?.rir ?? exercise?.defaultRir;
+  const activeEffortValue = state.settings?.effortTracking === "rpe" ? activeSet?.rpe : activeSet?.rir ?? initialRir(exercise);
   return <main className={`guided-shell theme-${state.settings?.theme ?? "dark"} accent-${state.settings?.accent ?? "lime"}`}>
     <header className="guided-header"><button className="icon-button" onClick={onPause} aria-label="Pausar sesión">←</button><div><span className="eyebrow">ENTRENANDO</span><h1>{workout.name}</h1></div><span className="set-count">{completed}/{total}</span></header>
     <div className="session-progress"><span style={{ width: `${total ? completed / total * 100 : 0}%` }} /></div>

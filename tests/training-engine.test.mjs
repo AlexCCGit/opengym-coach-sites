@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { detectPersonalRecords, nextIncompleteSet, normalizeEffort, recommendProgression, shouldStartRest, summarizeEffort, supersetUnits, updateProgressionState, workoutSetOrder } from "../lib/training-engine.mjs";
+import { detectPersonalRecords, initialRir, nextIncompleteSet, normalizeEffort, recommendProgression, shouldStartRest, summarizeEffort, supersetUnits, updateProgressionState, workoutSetOrder } from "../lib/training-engine.mjs";
 import { createInitialState } from "../lib/domain.mjs";
 import { exportPortableState, importPortableState, normalizeState } from "../lib/state-schema.mjs";
 
@@ -29,6 +29,11 @@ test("normaliza RIR y RPE y resume cobertura", () => {
   assert.equal(summary.trackedSets, 2);
   assert.equal(summary.coverage, 2 / 3);
   assert.equal(summary.hardSets, 2);
+});
+
+test("inicia cada serie con RIR 2 salvo que el ejercicio defina otro valor", () => {
+  assert.equal(initialRir({ id: "seated-row" }), 2);
+  assert.equal(initialRir({ id: "plank", defaultRir: 3 }), 3);
 });
 
 test("agrupa superseries manteniendo el orden de unidades", () => {

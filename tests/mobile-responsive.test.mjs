@@ -36,5 +36,5 @@ test("simplifica el registro a una serie activa con cierre rápido", async () =>
   assert.match(app, /Continuar sesión/);
   assert.match(app, /ACTIVE_WORKOUT_KEY/);
   assert.match(app, /tracksReps/);
-  assert.match(app, /defaultRir/);
+  assert.match(app, /initialRir\(plannedExercise\)/);
 });
