@@ -1,7 +1,8 @@
-import { authenticateRequest, unauthorizedResponse } from "../../../../lib/auth";
+import { authenticateRequest, getAuthConfig, unauthorizedResponse } from "../../../../lib/auth";
 import { dumpDatabase, restoreDatabase, type DatabaseBackup } from "../../../../lib/backup-repository";
 
 async function requireAdmin(request: Request) {
+  if (getAuthConfig(request).mode !== "auth0") return Response.json({ error: "La copia completa requiere autenticación segura" }, { status: 403 });
   const auth = await authenticateRequest(request);
   if (!auth) return unauthorizedResponse(request);
   if (!auth.permissions.includes("gym:admin")) return Response.json({ error: "forbidden" }, { status: 403 });

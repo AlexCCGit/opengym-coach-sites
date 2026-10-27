@@ -716,7 +716,7 @@ function BodyMap({ muscles, period, figure }: { muscles: Record<string, number>;
   return <article className="stats-card body-map-card"><span className="eyebrow">MAPA MUSCULAR · {figure === "female" ? "FIGURA FEMENINA" : "FIGURA MASCULINA"}</span><h3>Frecuencia · {period > 1000 ? "todo el historial" : `${period} días`}</h3><div className="body-figures"><svg viewBox="0 0 180 320" role="img" aria-label="Mapa muscular frontal"><circle cx="90" cy="27" r="19" fill="#dfe2dc"/><path d={`M66 52 Q90 43 114 52 L126 126 Q112 151 90 151 Q68 151 54 126Z`} fill={fill(tone(["chest","pectorals","abs","core"]))}/><path d="M55 58 L30 137 L42 143 L70 79Z" fill={fill(tone(["shoulders","delts","biceps","forearms"]))}/><path d="M125 58 L150 137 L138 143 L110 79Z" fill={fill(tone(["shoulders","delts","biceps","forearms"]))}/><path d={`M${waist} 145 L55 273 L76 276 L90 168Z`} fill={fill(tone(["quads","adductors","calves"]))}/><path d={`M${180-waist} 145 L125 273 L104 276 L90 168Z`} fill={fill(tone(["quads","adductors","calves"]))}/></svg><svg viewBox="0 0 180 320" role="img" aria-label="Mapa muscular posterior"><circle cx="90" cy="27" r="19" fill="#dfe2dc"/><path d="M64 52 Q90 44 116 52 L126 128 Q110 151 90 151 Q70 151 54 128Z" fill={fill(tone(["back","lats","traps"]))}/><path d="M55 58 L30 137 L42 143 L70 79Z" fill={fill(tone(["shoulders","delts","triceps","forearms"]))}/><path d="M125 58 L150 137 L138 143 L110 79Z" fill={fill(tone(["shoulders","delts","triceps","forearms"]))}/><path d="M66 145 L55 273 L76 276 L90 168Z" fill={fill(tone(["glutes","hamstrings","calves"]))}/><path d="M114 145 L125 273 L104 276 L90 168Z" fill={fill(tone(["glutes","hamstrings","calves"]))}/></svg></div><div className="muscle-legend">{Object.entries(muscles).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, count]) => <span key={name}><i style={{ background: fill(count / max) }} />{name} · {count}</span>)}</div><details><summary>Músculos no entrenados ({untrained.length})</summary><p>{untrained.join(", ") || "Ninguno"}</p></details></article>;
 }
 
-function Settings({ state, t, request, onSave, onLogout }: any) {
+function Settings({ state, t, config, request, onSave, onLogout }: any) {
   const [report, setReport] = useState<any>(null);
   const [pendingImport, setPendingImport] = useState<any>(null);
   const [pastedImport, setPastedImport] = useState("");
@@ -827,6 +827,7 @@ function Settings({ state, t, request, onSave, onLogout }: any) {
     await loadAdmin(); return true;
   };
   const downloadBackup = async () => {
+    if (config?.authMode !== "auth0") { setAdminError("La copia completa requiere acceso seguro de administrador."); return; }
     const response = await request("/api/admin/backup/");
     if (!response.ok) { setAdminError("No se pudo generar la copia completa."); return; }
     const url = URL.createObjectURL(await response.blob());
@@ -837,6 +838,7 @@ function Settings({ state, t, request, onSave, onLogout }: any) {
     URL.revokeObjectURL(url);
   };
   const restoreBackup = async (file?: File) => {
+    if (config?.authMode !== "auth0") { setAdminError("La copia completa requiere acceso seguro de administrador."); return; }
     if (!file || !window.confirm("Restaurar la copia completa sobrescribirá los perfiles que contenga. ¿Continuar?")) return;
     const response = await request("/api/admin/backup/", { method: "POST", headers: { "Content-Type": "application/json" }, body: await file.text() });
     const result = await response.json();
